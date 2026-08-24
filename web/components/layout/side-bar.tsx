@@ -74,7 +74,7 @@ function SideBar() {
     pathname.startsWith('/construct/scheduled-tasks') ||
     pathname === '/models_evaluation';
   const { t, i18n } = useTranslation();
-  const [logo, setLogo] = useState<string>('/logo_zh_latest.png');
+  const logo = '/brand-logo.svg';
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [dialogueList, setDialogueList] = useState<IChatDialogueSchema[]>([]);
   const [loadingDialogues, setLoadingDialogues] = useState(false);
@@ -313,10 +313,6 @@ function SideBar() {
   }, [i18n.language]);
 
   useEffect(() => {
-    setLogo(mode === 'dark' ? '/logo_s_latest.png' : '/logo_zh_latest.png');
-  }, [mode]);
-
-  useEffect(() => {
     fetchDialogueList();
   }, [fetchDialogueList]);
 
@@ -327,7 +323,15 @@ function SideBar() {
         <div>
           <div className='flex flex-col items-center pb-2'>
             <Link href='/' className='flex justify-center items-center pb-2'>
-              <Image src='/LOGO_SMALL.png' alt='DB-GPT' width={40} height={40} />
+              <span className='flex h-10 w-10 items-center justify-center rounded-lg bg-white'>
+                <Image
+                  src='/brand-logo.svg'
+                  alt='华工·筑视 智检助手'
+                  width={40}
+                  height={30}
+                  className='h-auto w-9 object-contain'
+                />
+              </span>
             </Link>
             <Tooltip title={t('Show_Sidebar') || '展开侧栏'} placement='right'>
               <div
@@ -395,8 +399,19 @@ function SideBar() {
     <div className='flex flex-col h-screen w-[240px] min-w-[240px] px-4 pt-4 bg-bar dark:bg-[#232734] animate-fade animate-duration-300'>
       {/* LOGO + Collapse Toggle */}
       <div className='flex items-center justify-between p-2 pb-4'>
-        <Link href='/' className='flex items-center'>
-          <Image src={logo} alt='DB-GPT' width={140} height={32} />
+        <Link href='/' className='flex min-w-0 items-center gap-2'>
+          <span className='flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-white'>
+            <Image
+              src={logo}
+              alt='华工·筑视 智检助手'
+              width={36}
+              height={27}
+              className='h-auto w-8 object-contain'
+            />
+          </span>
+          <span className='whitespace-nowrap text-xs font-semibold text-gray-800 dark:text-gray-100'>
+            华工·筑视 智检助手
+          </span>
         </Link>
         <Tooltip title={t('Close_Sidebar') || '收起侧栏'}>
           <div

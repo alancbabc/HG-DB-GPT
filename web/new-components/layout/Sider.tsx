@@ -85,8 +85,19 @@ const Sider: React.FC = () => {
         <></>
       ) : (
         <>
-          <Link href='/' className='flex items-center justify-center p-2 pb-4'>
-            <Image src='/logo_zh_latest.png' alt='DB-GPT' width={180} height={40} />
+          <Link href='/' className='flex items-center justify-center gap-2 p-2 pb-4'>
+            <span className='flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-white'>
+              <Image
+                src='/brand-logo.svg'
+                alt='华工·筑视 智检助手'
+                width={40}
+                height={30}
+                className='h-auto w-9 object-contain'
+              />
+            </span>
+            <span className='whitespace-nowrap text-sm font-semibold text-gray-800 dark:text-gray-100'>
+              华工·筑视 智检助手
+            </span>
           </Link>
           <div></div>
           <div className='flex flex-col'>

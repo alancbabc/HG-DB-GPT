@@ -113,7 +113,7 @@ export const CommonZh: Resources['translation'] = {
   Show_Sidebar: '展开',
   language: '语言',
   choose_model: '请选择一个模型',
-  data_center_desc: 'DB-GPT支持数据库交互和基于文档的对话，它还提供了一个用户友好的数据中心管理界面。',
+  data_center_desc: '华工·筑视 智检助手支持数据库交互和基于文档的对话，并提供易用的数据中心管理界面。',
   create_database: '创建数据库',
   create_knowledge: '创建知识库',
   create_flow: '创建工作流',
@@ -454,7 +454,7 @@ export const CommonZh: Resources['translation'] = {
   evaluation_env_test: '测试集',
   evaluation_env_dev_tooltip: '用于本地开发、验证和调试的数据集',
   evaluation_env_test_tooltip: '用于正式评测打榜的数据集,结果用于评测集打榜排名',
-  home_title: 'DB-GPT AI数据助理',
+  home_title: '华工·筑视 智检助手',
   home_subtitle: 'Agentic Data Driven Decisions',
   release_to_add_files: '松开以添加文件',
   supported_file_formats: '支持',
@@ -843,7 +843,7 @@ export const CommonZh: Resources['translation'] = {
   chat_error: '抱歉，发生了错误，请重试。',
   // ── request.ts 错误提示 ──
   'request.error.network':
-    '无法连接 DB-GPT 服务：网络不可达（可能是 CORS 跨域限制或服务未启动），请检查 cors_allowed_origins 配置及服务是否运行。',
+    '无法连接华工·筑视 智检助手服务：网络不可达（可能是 CORS 跨域限制或服务未启动），请检查 cors_allowed_origins 配置及服务是否运行。',
   'request.error.timeout': '请求超时，请稍后重试。',
   'request.error.default': '请求失败（HTTP {{status}}）。',
   'editor.please_select_database': '请先选择数据库',

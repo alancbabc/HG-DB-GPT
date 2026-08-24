@@ -132,11 +132,17 @@ function LayoutWrapper({ children }: { children: React.ReactNode }) {
 function MyApp({ Component, pageProps }: AppProps) {
   return (
     <ChatContextProvider>
-      <CssWrapper>
-        <LayoutWrapper>
-          <Component {...pageProps} />
-        </LayoutWrapper>
-      </CssWrapper>
+      <>
+        <Head>
+          <title>华工·筑视 智检助手</title>
+          <meta name='application-name' content='华工·筑视 智检助手' />
+        </Head>
+        <CssWrapper>
+          <LayoutWrapper>
+            <Component {...pageProps} />
+          </LayoutWrapper>
+        </CssWrapper>
+      </>
     </ChatContextProvider>
   );
 }

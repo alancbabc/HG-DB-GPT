@@ -212,7 +212,15 @@ const ChatSider: React.FC<{
             item={{
               label: t('assistant'),
               key: 'default',
-              icon: <Image src='/LOGO_SMALL.png' alt='default' width={24} height={24} className='flex-1' />,
+              icon: (
+                <Image
+                  src='/brand-logo.svg'
+                  alt='华工·筑视 智检助手'
+                  width={24}
+                  height={24}
+                  className='flex-1 rounded bg-white object-contain p-0.5'
+                />
+              ),
               default: true,
             }}
             order={order}
