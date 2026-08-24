@@ -1,4 +1,5 @@
 import { ChatContext, ChatContextProvider } from '@/app/chat-context';
+import { UiVisibilityProvider, useUiVisibility } from '@/app/ui-visibility-context';
 import SideBar from '@/components/layout/side-bar';
 import FloatHelper from '@/new-components/layout/FloatHelper';
 import { STORAGE_LANG_KEY, STORAGE_USERINFO_KEY, STORAGE_USERINFO_VALID_TIME_KEY } from '@/utils/constants/index';
@@ -54,6 +55,7 @@ function CssWrapper({ children }: { children: React.ReactElement }) {
 
 function LayoutWrapper({ children }: { children: React.ReactNode }) {
   const { isMenuExpand, mode } = useContext(ChatContext);
+  const { ready: isUiVisibilityReady } = useUiVisibility();
   const { i18n } = useTranslation();
   const [isLogin, setIsLogin] = useState(false);
 
@@ -85,7 +87,9 @@ function LayoutWrapper({ children }: { children: React.ReactNode }) {
     handleAuth();
   }, []);
 
-  if (!isLogin && !router.pathname.startsWith('/share')) {
+  const bypassUiVisibility = router.pathname.includes('mobile') || router.pathname.startsWith('/share');
+
+  if ((!isLogin && !router.pathname.startsWith('/share')) || (!isUiVisibilityReady && !bypassUiVisibility)) {
     return null;
   }
 
@@ -131,19 +135,21 @@ function LayoutWrapper({ children }: { children: React.ReactNode }) {
 
 function MyApp({ Component, pageProps }: AppProps) {
   return (
-    <ChatContextProvider>
-      <>
-        <Head>
-          <title>华工·筑视 智检助手</title>
-          <meta name='application-name' content='华工·筑视 智检助手' />
-        </Head>
-        <CssWrapper>
-          <LayoutWrapper>
-            <Component {...pageProps} />
-          </LayoutWrapper>
-        </CssWrapper>
-      </>
-    </ChatContextProvider>
+    <UiVisibilityProvider>
+      <ChatContextProvider>
+        <>
+          <Head>
+            <title>华工·筑视 智检助手</title>
+            <meta name='application-name' content='华工·筑视 智检助手' />
+          </Head>
+          <CssWrapper>
+            <LayoutWrapper>
+              <Component {...pageProps} />
+            </LayoutWrapper>
+          </CssWrapper>
+        </>
+      </ChatContextProvider>
+    </UiVisibilityProvider>
   );
 }
 

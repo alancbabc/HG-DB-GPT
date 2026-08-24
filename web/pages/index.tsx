@@ -1,5 +1,7 @@
 import { ChatContext } from '@/app/chat-context';
+import { useUiVisibility } from '@/app/ui-visibility-context';
 import ModelSelector from '@/components/chat/header/model-selector';
+import { isRecommendedExampleVisible } from '@/config/ui-visibility';
 import { useConnectors } from '@/hooks/use-connector-api';
 import { buildSubAgentArtifacts, parseSubAgentEvent, restoreSubAgentStates } from '@/hooks/use-subagent-stream';
 import {
@@ -509,7 +511,7 @@ const EXAMPLE_CARDS = [
     description: '连接数据库后，生成数据库画像并生成可视化网页报告',
     query:
       '请分析当前连接的数据库，生成数据库画像（包括表结构、字段信息、数据量统计等），并生成一份精美的交互式网页分析报告。',
-    dbName: 'Walmart_Sales',
+    requiresDatabase: true,
     color: 'from-emerald-500/10 to-teal-500/10',
     borderColor: 'border-emerald-200/60 dark:border-emerald-800/40',
     iconBg: 'bg-emerald-100 dark:bg-emerald-900/40',
@@ -547,6 +549,18 @@ const Playground: NextPage = () => {
   const router = useRouter();
   const { t } = useTranslation();
   const { model, setModel } = useContext(ChatContext);
+  const { config: uiVisibility } = useUiVisibility();
+  const { explore: exploreVisibility } = uiVisibility;
+  const hasAddContextOptions =
+    exploreVisibility.fileUpload ||
+    exploreVisibility.dataSourceSelector ||
+    exploreVisibility.knowledgeBaseSelector ||
+    exploreVisibility.skillSelector ||
+    exploreVisibility.connectorSelector;
+  const visibleExampleCards = useMemo(
+    () => EXAMPLE_CARDS.filter(example => isRecommendedExampleVisible(uiVisibility, example.id)),
+    [uiVisibility],
+  );
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(false);
   const exampleRunInFlightRef = useRef(false);
@@ -664,35 +678,37 @@ const Playground: NextPage = () => {
   const [isFileDragActive, setIsFileDragActive] = useState(false);
   const fileDragDepthRef = useRef(0);
   const dragEventHasFiles = (e: React.DragEvent) => e.dataTransfer?.types?.includes('Files') ?? false;
-  const composerDragHandlers = {
-    onDragEnter: (e: React.DragEvent) => {
-      if (!dragEventHasFiles(e)) return;
-      e.preventDefault();
-      fileDragDepthRef.current += 1;
-      setIsFileDragActive(true);
-    },
-    // Required so the browser fires `drop` instead of navigating away.
-    onDragOver: (e: React.DragEvent) => {
-      if (!dragEventHasFiles(e)) return;
-      e.preventDefault();
-    },
-    onDragLeave: (e: React.DragEvent) => {
-      if (!dragEventHasFiles(e)) return;
-      fileDragDepthRef.current = Math.max(0, fileDragDepthRef.current - 1);
-      if (fileDragDepthRef.current === 0) setIsFileDragActive(false);
-    },
-    onDrop: (e: React.DragEvent) => {
-      if (!dragEventHasFiles(e)) return;
-      e.preventDefault();
-      // Keep the window-level swallow handler from seeing this drop twice.
-      e.stopPropagation();
-      fileDragDepthRef.current = 0;
-      setIsFileDragActive(false);
-      const files = e.dataTransfer?.files;
-      if (!files || files.length === 0) return;
-      void sessionFiles.addFiles(Array.from(files), ensureSessionFilesConvId());
-    },
-  };
+  const composerDragHandlers = exploreVisibility.fileUpload
+    ? {
+        onDragEnter: (e: React.DragEvent) => {
+          if (!dragEventHasFiles(e)) return;
+          e.preventDefault();
+          fileDragDepthRef.current += 1;
+          setIsFileDragActive(true);
+        },
+        // Required so the browser fires `drop` instead of navigating away.
+        onDragOver: (e: React.DragEvent) => {
+          if (!dragEventHasFiles(e)) return;
+          e.preventDefault();
+        },
+        onDragLeave: (e: React.DragEvent) => {
+          if (!dragEventHasFiles(e)) return;
+          fileDragDepthRef.current = Math.max(0, fileDragDepthRef.current - 1);
+          if (fileDragDepthRef.current === 0) setIsFileDragActive(false);
+        },
+        onDrop: (e: React.DragEvent) => {
+          if (!dragEventHasFiles(e)) return;
+          e.preventDefault();
+          // Keep the window-level swallow handler from seeing this drop twice.
+          e.stopPropagation();
+          fileDragDepthRef.current = 0;
+          setIsFileDragActive(false);
+          const files = e.dataTransfer?.files;
+          if (!files || files.length === 0) return;
+          void sessionFiles.addFiles(Array.from(files), ensureSessionFilesConvId());
+        },
+      }
+    : {};
 
   // Extension list for the drag overlay subtitle, driven by server
   // capabilities with the same fallback used for validation.
@@ -704,19 +720,20 @@ const Playground: NextPage = () => {
   // Overlay rendered inside the composer container while isFileDragActive.
   // pointer-events-none keeps it visual-only: the composer container's own
   // handlers above own drag bookkeeping and the drop.
-  const composerDragOverlay = isFileDragActive ? (
-    <div className='pointer-events-none absolute inset-0 z-30 flex p-2'>
-      <div className='flex flex-1 flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-blue-400 bg-blue-50/95 dark:border-blue-500 dark:bg-[#111217]/95'>
-        <div className='flex h-10 w-10 items-center justify-center rounded-xl bg-blue-500 shadow-lg shadow-blue-500/30'>
-          <DownloadOutlined className='text-lg text-white' />
-        </div>
-        <div className='text-sm font-semibold text-blue-600 dark:text-blue-400'>{t('release_to_add_files')}</div>
-        <div className='max-w-sm px-3 text-center text-xs text-gray-400 dark:text-gray-500'>
-          {t('supported_file_formats')} {supportedDragFormats}
+  const composerDragOverlay =
+    exploreVisibility.fileUpload && isFileDragActive ? (
+      <div className='pointer-events-none absolute inset-0 z-30 flex p-2'>
+        <div className='flex flex-1 flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-blue-400 bg-blue-50/95 dark:border-blue-500 dark:bg-[#111217]/95'>
+          <div className='flex h-10 w-10 items-center justify-center rounded-xl bg-blue-500 shadow-lg shadow-blue-500/30'>
+            <DownloadOutlined className='text-lg text-white' />
+          </div>
+          <div className='text-sm font-semibold text-blue-600 dark:text-blue-400'>{t('release_to_add_files')}</div>
+          <div className='max-w-sm px-3 text-center text-xs text-gray-400 dark:text-gray-500'>
+            {t('supported_file_formats')} {supportedDragFormats}
+          </div>
         </div>
       </div>
-    </div>
-  ) : null;
+    ) : null;
 
   // Legacy server-preloaded example file: fetch bounded content and render it
   // through the same preview surfaces (Drawer/desktop right panel).
@@ -2458,6 +2475,13 @@ const Playground: NextPage = () => {
     const queryVal = t(queryKey) as string;
     const translatedQuery = (queryVal && queryVal !== queryKey ? queryVal : example.query) as string;
 
+    if ('requiresDatabase' in example && example.requiresDatabase && !selectedDb) {
+      setQuery(translatedQuery);
+      setIsDbModalOpen(true);
+      message.info('请先选择数据源，再运行数据库画像分析');
+      return;
+    }
+
     if (loading || sendInFlightRef.current || exampleRunInFlightRef.current) return;
     exampleRunInFlightRef.current = true;
 
@@ -2505,21 +2529,12 @@ const Playground: NextPage = () => {
         }
       }
 
-      // Auto-select database if example specifies one
-      let matchedDb: DataSource | null = null;
-      if (example.dbName && dataSources) {
-        const found = dataSources.find((ds: DataSource) => ds.db_name === example.dbName);
-        if (found) {
-          matchedDb = found;
-          setSelectedDb(found);
-        }
-      }
-
       // Transfer the single-flight ownership to the common send entry point.
       // No other browser event can interleave between this ref write and the
       // synchronous acquisition at the start of handleStart.
       exampleRunInFlightRef.current = false;
-      await handleStart(translatedQuery, exampleSkill, matchedDb, exampleLegacyFile);
+      const exampleDb = 'requiresDatabase' in example && example.requiresDatabase ? selectedDb : undefined;
+      await handleStart(translatedQuery, exampleSkill, exampleDb, exampleLegacyFile);
     } catch (err: unknown) {
       message.destroy('example-loading');
       console.error('Example click error:', err);
@@ -3169,9 +3184,11 @@ const Playground: NextPage = () => {
                             onClearAll={clearComposerAttachments}
                             density='compact'
                             addControl={
-                              <Upload {...uploadProps}>
-                                <AttachmentRailCompactAddButton />
-                              </Upload>
+                              exploreVisibility.fileUpload ? (
+                                <Upload {...uploadProps}>
+                                  <AttachmentRailCompactAddButton />
+                                </Upload>
+                              ) : undefined
                             }
                             preview={showInlineAttachmentPreview ? null : sessionFilePreview}
                             onClosePreview={closeSessionFilePreview}
@@ -3187,7 +3204,12 @@ const Playground: NextPage = () => {
                             onChange={e => {
                               const newValue = e.target.value;
                               setQuery(newValue);
-                              if (newValue === '/' && !isSkillPanelOpen && !selectedSkill) {
+                              if (
+                                exploreVisibility.skillSelector &&
+                                newValue === '/' &&
+                                !isSkillPanelOpen &&
+                                !selectedSkill
+                              ) {
                                 setIsSkillPanelOpen(true);
                               }
                             }}
@@ -3210,213 +3232,280 @@ const Playground: NextPage = () => {
                           <div className='flex items-center justify-between mt-1'>
                             <div className='flex items-center gap-3'>
                               {/* Add Button */}
-                              <Dropdown
-                                menu={{
-                                  items: [
-                                    {
-                                      key: 'upload',
-                                      label: (
-                                        <Upload {...uploadProps}>
-                                          <div className='w-full'>Upload File</div>
-                                        </Upload>
-                                      ),
-                                      icon: <UploadOutlined />,
-                                    },
-                                    {
-                                      key: 'database',
-                                      label: 'Select Data Source',
-                                      icon: <DatabaseOutlined />,
-                                      onClick: () => setIsDbModalOpen(true),
-                                    },
-                                    {
-                                      key: 'knowledge',
-                                      label: 'Select Knowledge Base',
-                                      icon: <BookOutlined />,
-                                      onClick: () => setIsKnowledgeModalOpen(true),
-                                    },
-                                    {
-                                      key: 'connector',
-                                      label: t('use_connector'),
-                                      icon: <ApiOutlined />,
-                                      onClick: () => setIsConnectorPanelOpen(true),
-                                    },
-                                  ],
-                                }}
-                                trigger={['click']}
-                              >
-                                <Tooltip title={t('add_context')}>
-                                  <Button
-                                    type='text'
-                                    shape='circle'
-                                    size='small'
-                                    icon={<PlusOutlined />}
-                                    className='flex items-center justify-center text-gray-500 hover:text-violet-600 bg-gradient-to-b from-white to-gray-50 dark:from-[#2a2b2f] dark:to-[#1e1f24] dark:text-gray-300 border border-gray-200/80 dark:border-white/10 shadow-[0_1px_2px_rgba(0,0,0,0.05),inset_0_1px_0_rgba(255,255,255,1)] dark:shadow-[0_1px_2px_rgba(0,0,0,0.2),inset_0_1px_0_rgba(255,255,255,0.05)] hover:-translate-y-[0.5px] hover:shadow-[0_2px_4px_rgba(0,0,0,0.06),inset_0_1px_0_rgba(255,255,255,1)] dark:hover:border-white/20 transition-all flex-shrink-0'
-                                  />
-                                </Tooltip>
-                              </Dropdown>
+                              {hasAddContextOptions && (
+                                <Dropdown
+                                  menu={{
+                                    items: [
+                                      exploreVisibility.fileUpload
+                                        ? {
+                                            key: 'upload',
+                                            label: (
+                                              <Upload {...uploadProps}>
+                                                <div className='w-full'>Upload File</div>
+                                              </Upload>
+                                            ),
+                                            icon: <UploadOutlined />,
+                                          }
+                                        : null,
+                                      exploreVisibility.dataSourceSelector
+                                        ? {
+                                            key: 'database',
+                                            label: 'Select Data Source',
+                                            icon: <DatabaseOutlined />,
+                                            onClick: () => setIsDbModalOpen(true),
+                                          }
+                                        : null,
+                                      exploreVisibility.knowledgeBaseSelector
+                                        ? {
+                                            key: 'knowledge',
+                                            label: 'Select Knowledge Base',
+                                            icon: <BookOutlined />,
+                                            onClick: () => setIsKnowledgeModalOpen(true),
+                                          }
+                                        : null,
+                                      exploreVisibility.connectorSelector
+                                        ? {
+                                            key: 'connector',
+                                            label: t('use_connector'),
+                                            icon: <ApiOutlined />,
+                                            onClick: () => setIsConnectorPanelOpen(true),
+                                          }
+                                        : null,
+                                    ],
+                                  }}
+                                  trigger={['click']}
+                                >
+                                  <Tooltip title={t('add_context')}>
+                                    <Button
+                                      type='text'
+                                      shape='circle'
+                                      size='small'
+                                      icon={<PlusOutlined />}
+                                      className='flex items-center justify-center text-gray-500 hover:text-violet-600 bg-gradient-to-b from-white to-gray-50 dark:from-[#2a2b2f] dark:to-[#1e1f24] dark:text-gray-300 border border-gray-200/80 dark:border-white/10 shadow-[0_1px_2px_rgba(0,0,0,0.05),inset_0_1px_0_rgba(255,255,255,1)] dark:shadow-[0_1px_2px_rgba(0,0,0,0.2),inset_0_1px_0_rgba(255,255,255,0.05)] hover:-translate-y-[0.5px] hover:shadow-[0_2px_4px_rgba(0,0,0,0.06),inset_0_1px_0_rgba(255,255,255,1)] dark:hover:border-white/20 transition-all flex-shrink-0'
+                                    />
+                                  </Tooltip>
+                                </Dropdown>
+                              )}
 
                               {/* Skill Selector Button with Badge */}
-                              <Popover
-                                trigger='click'
-                                placement='topLeft'
-                                open={isSkillPanelOpen}
-                                onOpenChange={setIsSkillPanelOpen}
-                                overlayClassName='manus-skill-menu'
-                                overlayInnerStyle={{ padding: 0, borderRadius: 12 }}
-                                content={
-                                  <div className='w-[320px] bg-white dark:bg-[#2c2d31] rounded-xl shadow-xl overflow-hidden'>
-                                    <div className='p-3 border-b border-gray-100 dark:border-gray-700'>
-                                      <Input
-                                        placeholder={t('search_skill')}
-                                        prefix={<SearchOutlined className='text-gray-400' />}
-                                        value={skillSearchQuery}
-                                        onChange={e => setSkillSearchQuery(e.target.value)}
-                                        className='rounded-lg'
-                                        allowClear
-                                        size='small'
-                                      />
-                                    </div>
-                                    <div className='max-h-[300px] overflow-y-auto'>
-                                      {(skillsList || [])
-                                        .filter(
+                              {exploreVisibility.skillSelector && (
+                                <Popover
+                                  trigger='click'
+                                  placement='topLeft'
+                                  open={isSkillPanelOpen}
+                                  onOpenChange={setIsSkillPanelOpen}
+                                  overlayClassName='manus-skill-menu'
+                                  overlayInnerStyle={{ padding: 0, borderRadius: 12 }}
+                                  content={
+                                    <div className='w-[320px] bg-white dark:bg-[#2c2d31] rounded-xl shadow-xl overflow-hidden'>
+                                      <div className='p-3 border-b border-gray-100 dark:border-gray-700'>
+                                        <Input
+                                          placeholder={t('search_skill')}
+                                          prefix={<SearchOutlined className='text-gray-400' />}
+                                          value={skillSearchQuery}
+                                          onChange={e => setSkillSearchQuery(e.target.value)}
+                                          className='rounded-lg'
+                                          allowClear
+                                          size='small'
+                                        />
+                                      </div>
+                                      <div className='max-h-[300px] overflow-y-auto'>
+                                        {(skillsList || [])
+                                          .filter(
+                                            skill =>
+                                              !skillSearchQuery ||
+                                              skill.name.toLowerCase().includes(skillSearchQuery.toLowerCase()) ||
+                                              skill.description.toLowerCase().includes(skillSearchQuery.toLowerCase()),
+                                          )
+                                          .map(skill => (
+                                            <div
+                                              key={skill.id}
+                                              onClick={() => {
+                                                if (selectedSkill?.id === skill.id) {
+                                                  setSelectedSkill(null);
+                                                  setQuery('');
+                                                } else {
+                                                  setSelectedSkill(skill);
+                                                  setQuery(`/${skill.name} `);
+                                                }
+                                                setIsSkillPanelOpen(false);
+                                                setSkillSearchQuery('');
+                                              }}
+                                              className={`flex items-start gap-3 px-3 py-2.5 cursor-pointer transition-all hover:bg-gray-50 dark:hover:bg-gray-800 ${
+                                                selectedSkill?.id === skill.id
+                                                  ? 'bg-purple-50 dark:bg-purple-900/20'
+                                                  : ''
+                                              }`}
+                                            >
+                                              <div className='flex-shrink-0 w-7 h-7 rounded-lg bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center text-white text-xs'>
+                                                {skill.icon || <ThunderboltOutlined />}
+                                              </div>
+                                              <div className='flex-1 min-w-0'>
+                                                <div className='flex items-center gap-2'>
+                                                  <span className='font-medium text-sm text-gray-800 dark:text-gray-200'>
+                                                    {skill.name}
+                                                  </span>
+                                                  <span
+                                                    className={`text-[10px] px-1.5 py-0.5 rounded ${
+                                                      skill.type === 'official'
+                                                        ? 'bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400'
+                                                        : 'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400'
+                                                    }`}
+                                                  >
+                                                    {skill.type === 'official'
+                                                      ? t('picker_skill_official')
+                                                      : t('picker_skill_personal')}
+                                                  </span>
+                                                </div>
+                                                <p className='text-xs text-gray-500 dark:text-gray-400 mt-0.5 line-clamp-2'>
+                                                  {skill.description}
+                                                </p>
+                                              </div>
+                                              {selectedSkill?.id === skill.id && (
+                                                <CheckCircleFilled className='text-purple-500 flex-shrink-0 text-sm' />
+                                              )}
+                                            </div>
+                                          ))}
+                                        {(skillsList || []).filter(
                                           skill =>
                                             !skillSearchQuery ||
                                             skill.name.toLowerCase().includes(skillSearchQuery.toLowerCase()) ||
                                             skill.description.toLowerCase().includes(skillSearchQuery.toLowerCase()),
-                                        )
-                                        .map(skill => (
-                                          <div
-                                            key={skill.id}
-                                            onClick={() => {
-                                              if (selectedSkill?.id === skill.id) {
-                                                setSelectedSkill(null);
-                                                setQuery('');
-                                              } else {
-                                                setSelectedSkill(skill);
-                                                setQuery(`/${skill.name} `);
-                                              }
-                                              setIsSkillPanelOpen(false);
-                                              setSkillSearchQuery('');
-                                            }}
-                                            className={`flex items-start gap-3 px-3 py-2.5 cursor-pointer transition-all hover:bg-gray-50 dark:hover:bg-gray-800 ${
-                                              selectedSkill?.id === skill.id ? 'bg-purple-50 dark:bg-purple-900/20' : ''
-                                            }`}
-                                          >
-                                            <div className='flex-shrink-0 w-7 h-7 rounded-lg bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center text-white text-xs'>
-                                              {skill.icon || <ThunderboltOutlined />}
+                                        ).length === 0 && (
+                                          <div className='text-center py-8 text-gray-400'>
+                                            <ThunderboltOutlined className='text-2xl mb-2 opacity-50' />
+                                            <div className='text-xs'>
+                                              {skillSearchQuery ? t('picker_skill_no_match') : t('picker_skill_empty')}
                                             </div>
-                                            <div className='flex-1 min-w-0'>
-                                              <div className='flex items-center gap-2'>
-                                                <span className='font-medium text-sm text-gray-800 dark:text-gray-200'>
-                                                  {skill.name}
-                                                </span>
-                                                <span
-                                                  className={`text-[10px] px-1.5 py-0.5 rounded ${
-                                                    skill.type === 'official'
-                                                      ? 'bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400'
-                                                      : 'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400'
-                                                  }`}
-                                                >
-                                                  {skill.type === 'official'
-                                                    ? t('picker_skill_official')
-                                                    : t('picker_skill_personal')}
-                                                </span>
-                                              </div>
-                                              <p className='text-xs text-gray-500 dark:text-gray-400 mt-0.5 line-clamp-2'>
-                                                {skill.description}
-                                              </p>
-                                            </div>
-                                            {selectedSkill?.id === skill.id && (
-                                              <CheckCircleFilled className='text-purple-500 flex-shrink-0 text-sm' />
-                                            )}
                                           </div>
-                                        ))}
-                                      {(skillsList || []).filter(
-                                        skill =>
-                                          !skillSearchQuery ||
-                                          skill.name.toLowerCase().includes(skillSearchQuery.toLowerCase()) ||
-                                          skill.description.toLowerCase().includes(skillSearchQuery.toLowerCase()),
-                                      ).length === 0 && (
-                                        <div className='text-center py-8 text-gray-400'>
-                                          <ThunderboltOutlined className='text-2xl mb-2 opacity-50' />
-                                          <div className='text-xs'>
-                                            {skillSearchQuery ? t('picker_skill_no_match') : t('picker_skill_empty')}
-                                          </div>
-                                        </div>
-                                      )}
+                                        )}
+                                      </div>
+                                      <div className='border-t border-gray-100 dark:border-gray-700 px-3 py-2 flex items-center justify-between bg-gray-50/50 dark:bg-gray-900/50'>
+                                        <span className='text-[10px] text-gray-400'>
+                                          {t('picker_skill_count', { count: (skillsList || []).length })}
+                                        </span>
+                                        <Button
+                                          type='link'
+                                          size='small'
+                                          onClick={() => {
+                                            router.push('/construct/skills');
+                                            setIsSkillPanelOpen(false);
+                                          }}
+                                          className='text-[10px] p-0 h-auto'
+                                        >
+                                          {t('picker_manage_skill')}
+                                        </Button>
+                                      </div>
                                     </div>
-                                    <div className='border-t border-gray-100 dark:border-gray-700 px-3 py-2 flex items-center justify-between bg-gray-50/50 dark:bg-gray-900/50'>
-                                      <span className='text-[10px] text-gray-400'>
-                                        {t('picker_skill_count', { count: (skillsList || []).length })}
-                                      </span>
-                                      <Button
-                                        type='link'
-                                        size='small'
-                                        onClick={() => {
-                                          router.push('/construct/skills');
-                                          setIsSkillPanelOpen(false);
-                                        }}
-                                        className='text-[10px] p-0 h-auto'
-                                      >
-                                        {t('picker_manage_skill')}
-                                      </Button>
-                                    </div>
-                                  </div>
-                                }
-                              >
-                                <Tooltip
-                                  title={
-                                    selectedSkill
-                                      ? t('skill_selected', { name: selectedSkill.name })
-                                      : t('select_skill')
                                   }
                                 >
-                                  <Button
-                                    type='text'
-                                    shape='circle'
-                                    size='small'
-                                    className={`relative flex items-center justify-center flex-shrink-0 transition-all ${
+                                  <Tooltip
+                                    title={
                                       selectedSkill
-                                        ? 'bg-gradient-to-br from-[#a78bfa] to-[#7c3aed] text-white border border-transparent shadow-[0_2px_4px_rgba(139,92,246,0.3),inset_0_1px_0_rgba(255,255,255,0.3)] hover:-translate-y-[0.5px] hover:shadow-[0_4px_8px_rgba(139,92,246,0.4),inset_0_1px_0_rgba(255,255,255,0.3)]'
-                                        : 'text-gray-500 hover:text-violet-600 bg-gradient-to-b from-white to-gray-50 dark:from-[#2a2b2f] dark:to-[#1e1f24] dark:text-gray-300 border border-gray-200/80 dark:border-white/10 shadow-[0_1px_2px_rgba(0,0,0,0.05),inset_0_1px_0_rgba(255,255,255,1)] dark:shadow-[0_1px_2px_rgba(0,0,0,0.2),inset_0_1px_0_rgba(255,255,255,0.05)] hover:-translate-y-[0.5px] hover:shadow-[0_2px_4px_rgba(0,0,0,0.06),inset_0_1px_0_rgba(255,255,255,1)] dark:hover:border-white/20'
-                                    }`}
+                                        ? t('skill_selected', { name: selectedSkill.name })
+                                        : t('select_skill')
+                                    }
                                   >
-                                    <div className='relative'>
-                                      <ThunderboltOutlined className={selectedSkill ? 'text-white' : ''} />
-                                      {selectedSkill && (
-                                        <span className='absolute -top-1.5 -right-1.5 bg-white text-[#7c3aed] text-[8px] rounded-full w-3.5 h-3.5 flex items-center justify-center font-bold shadow-sm ring-1 ring-[#7c3aed]/30'>
-                                          1
-                                        </span>
-                                      )}
-                                    </div>
-                                  </Button>
-                                </Tooltip>
-                              </Popover>
+                                    <Button
+                                      type='text'
+                                      shape='circle'
+                                      size='small'
+                                      className={`relative flex items-center justify-center flex-shrink-0 transition-all ${
+                                        selectedSkill
+                                          ? 'bg-gradient-to-br from-[#a78bfa] to-[#7c3aed] text-white border border-transparent shadow-[0_2px_4px_rgba(139,92,246,0.3),inset_0_1px_0_rgba(255,255,255,0.3)] hover:-translate-y-[0.5px] hover:shadow-[0_4px_8px_rgba(139,92,246,0.4),inset_0_1px_0_rgba(255,255,255,0.3)]'
+                                          : 'text-gray-500 hover:text-violet-600 bg-gradient-to-b from-white to-gray-50 dark:from-[#2a2b2f] dark:to-[#1e1f24] dark:text-gray-300 border border-gray-200/80 dark:border-white/10 shadow-[0_1px_2px_rgba(0,0,0,0.05),inset_0_1px_0_rgba(255,255,255,1)] dark:shadow-[0_1px_2px_rgba(0,0,0,0.2),inset_0_1px_0_rgba(255,255,255,0.05)] hover:-translate-y-[0.5px] hover:shadow-[0_2px_4px_rgba(0,0,0,0.06),inset_0_1px_0_rgba(255,255,255,1)] dark:hover:border-white/20'
+                                      }`}
+                                    >
+                                      <div className='relative'>
+                                        <ThunderboltOutlined className={selectedSkill ? 'text-white' : ''} />
+                                        {selectedSkill && (
+                                          <span className='absolute -top-1.5 -right-1.5 bg-white text-[#7c3aed] text-[8px] rounded-full w-3.5 h-3.5 flex items-center justify-center font-bold shadow-sm ring-1 ring-[#7c3aed]/30'>
+                                            1
+                                          </span>
+                                        )}
+                                      </div>
+                                    </Button>
+                                  </Tooltip>
+                                </Popover>
+                              )}
 
                               {/* Connector Selector Button */}
-                              <Popover
-                                trigger='click'
-                                placement='topLeft'
-                                open={isConnectorPanelOpen}
-                                onOpenChange={setIsConnectorPanelOpen}
-                                overlayClassName='manus-skill-menu'
-                                overlayInnerStyle={{ padding: 0, borderRadius: 12 }}
-                                content={
-                                  <div className='w-[320px] bg-white dark:bg-[#2c2d31] rounded-xl shadow-xl overflow-hidden'>
-                                    <div className='p-3 border-b border-gray-100 dark:border-gray-700'>
-                                      <Input
-                                        placeholder={t('search_connector')}
-                                        prefix={<SearchOutlined className='text-gray-400' />}
-                                        value={connectorSearchQuery}
-                                        onChange={e => setConnectorSearchQuery(e.target.value)}
-                                        className='rounded-lg'
-                                        allowClear
-                                        size='small'
-                                      />
-                                    </div>
-                                    <div className='max-h-[300px] overflow-y-auto'>
-                                      {(connectorsList || [])
-                                        .filter(
+                              {exploreVisibility.connectorSelector && (
+                                <Popover
+                                  trigger='click'
+                                  placement='topLeft'
+                                  open={isConnectorPanelOpen}
+                                  onOpenChange={setIsConnectorPanelOpen}
+                                  overlayClassName='manus-skill-menu'
+                                  overlayInnerStyle={{ padding: 0, borderRadius: 12 }}
+                                  content={
+                                    <div className='w-[320px] bg-white dark:bg-[#2c2d31] rounded-xl shadow-xl overflow-hidden'>
+                                      <div className='p-3 border-b border-gray-100 dark:border-gray-700'>
+                                        <Input
+                                          placeholder={t('search_connector')}
+                                          prefix={<SearchOutlined className='text-gray-400' />}
+                                          value={connectorSearchQuery}
+                                          onChange={e => setConnectorSearchQuery(e.target.value)}
+                                          className='rounded-lg'
+                                          allowClear
+                                          size='small'
+                                        />
+                                      </div>
+                                      <div className='max-h-[300px] overflow-y-auto'>
+                                        {(connectorsList || [])
+                                          .filter(
+                                            (c: ConnectorInstance) =>
+                                              c.status === 'active' &&
+                                              (!connectorSearchQuery ||
+                                                c.display_name
+                                                  .toLowerCase()
+                                                  .includes(connectorSearchQuery.toLowerCase()) ||
+                                                c.connector_type
+                                                  .toLowerCase()
+                                                  .includes(connectorSearchQuery.toLowerCase())),
+                                          )
+                                          .map((c: ConnectorInstance) => (
+                                            <div
+                                              key={c.id}
+                                              onClick={() => {
+                                                setSelectedConnectors(prev =>
+                                                  prev.some(s => s.id === c.id)
+                                                    ? prev.filter(s => s.id !== c.id)
+                                                    : [...prev, c],
+                                                );
+                                                setConnectorSearchQuery('');
+                                              }}
+                                              className={`flex items-start gap-3 px-3 py-2.5 cursor-pointer transition-all hover:bg-gray-50 dark:hover:bg-gray-800 ${
+                                                selectedConnectors.some(s => s.id === c.id)
+                                                  ? 'bg-violet-50 dark:bg-violet-900/20'
+                                                  : ''
+                                              }`}
+                                            >
+                                              <div className='flex-shrink-0 w-7 h-7 rounded-lg bg-gradient-to-br from-violet-500 to-indigo-500 flex items-center justify-center text-white text-xs'>
+                                                <ApiOutlined />
+                                              </div>
+                                              <div className='flex-1 min-w-0'>
+                                                <div className='flex items-center gap-2'>
+                                                  <span className='font-medium text-sm text-gray-800 dark:text-gray-200'>
+                                                    {c.display_name}
+                                                  </span>
+                                                  <span className='text-[10px] px-1.5 py-0.5 rounded bg-green-100 text-green-600 dark:bg-green-900/30 dark:text-green-400'>
+                                                    {t('picker_connector_active')}
+                                                  </span>
+                                                </div>
+                                                <p
+                                                  className='text-xs text-gray-500 dark:text-gray-400 mt-0.5 truncate'
+                                                  title={(c.config?.description as string) || c.connector_type}
+                                                >
+                                                  {(c.config?.description as string) || c.connector_type}
+                                                </p>
+                                              </div>
+                                              {selectedConnectors.some(s => s.id === c.id) && (
+                                                <CheckCircleFilled className='text-violet-500 flex-shrink-0 text-sm' />
+                                              )}
+                                            </div>
+                                          ))}
+                                        {(connectorsList || []).filter(
                                           (c: ConnectorInstance) =>
                                             c.status === 'active' &&
                                             (!connectorSearchQuery ||
@@ -3426,134 +3515,87 @@ const Playground: NextPage = () => {
                                               c.connector_type
                                                 .toLowerCase()
                                                 .includes(connectorSearchQuery.toLowerCase())),
-                                        )
-                                        .map((c: ConnectorInstance) => (
-                                          <div
-                                            key={c.id}
-                                            onClick={() => {
-                                              setSelectedConnectors(prev =>
-                                                prev.some(s => s.id === c.id)
-                                                  ? prev.filter(s => s.id !== c.id)
-                                                  : [...prev, c],
-                                              );
-                                              setConnectorSearchQuery('');
-                                            }}
-                                            className={`flex items-start gap-3 px-3 py-2.5 cursor-pointer transition-all hover:bg-gray-50 dark:hover:bg-gray-800 ${
-                                              selectedConnectors.some(s => s.id === c.id)
-                                                ? 'bg-violet-50 dark:bg-violet-900/20'
-                                                : ''
-                                            }`}
-                                          >
-                                            <div className='flex-shrink-0 w-7 h-7 rounded-lg bg-gradient-to-br from-violet-500 to-indigo-500 flex items-center justify-center text-white text-xs'>
-                                              <ApiOutlined />
+                                        ).length === 0 && (
+                                          <div className='text-center py-8 text-gray-400'>
+                                            <ApiOutlined className='text-2xl mb-2 opacity-50' />
+                                            <div className='text-xs'>
+                                              {connectorSearchQuery
+                                                ? t('picker_connector_no_match')
+                                                : t('picker_connector_empty')}
                                             </div>
-                                            <div className='flex-1 min-w-0'>
-                                              <div className='flex items-center gap-2'>
-                                                <span className='font-medium text-sm text-gray-800 dark:text-gray-200'>
-                                                  {c.display_name}
-                                                </span>
-                                                <span className='text-[10px] px-1.5 py-0.5 rounded bg-green-100 text-green-600 dark:bg-green-900/30 dark:text-green-400'>
-                                                  {t('picker_connector_active')}
-                                                </span>
-                                              </div>
-                                              <p
-                                                className='text-xs text-gray-500 dark:text-gray-400 mt-0.5 truncate'
-                                                title={(c.config?.description as string) || c.connector_type}
-                                              >
-                                                {(c.config?.description as string) || c.connector_type}
-                                              </p>
-                                            </div>
-                                            {selectedConnectors.some(s => s.id === c.id) && (
-                                              <CheckCircleFilled className='text-violet-500 flex-shrink-0 text-sm' />
-                                            )}
                                           </div>
-                                        ))}
-                                      {(connectorsList || []).filter(
-                                        (c: ConnectorInstance) =>
-                                          c.status === 'active' &&
-                                          (!connectorSearchQuery ||
-                                            c.display_name.toLowerCase().includes(connectorSearchQuery.toLowerCase()) ||
-                                            c.connector_type
-                                              .toLowerCase()
-                                              .includes(connectorSearchQuery.toLowerCase())),
-                                      ).length === 0 && (
-                                        <div className='text-center py-8 text-gray-400'>
-                                          <ApiOutlined className='text-2xl mb-2 opacity-50' />
-                                          <div className='text-xs'>
-                                            {connectorSearchQuery
-                                              ? t('picker_connector_no_match')
-                                              : t('picker_connector_empty')}
-                                          </div>
-                                        </div>
-                                      )}
+                                        )}
+                                      </div>
+                                      <div className='border-t border-gray-100 dark:border-gray-700 px-3 py-2 flex items-center justify-between bg-gray-50/50 dark:bg-gray-900/50'>
+                                        <span className='text-[10px] text-gray-400'>
+                                          {t('picker_connector_count', {
+                                            count: (connectorsList || []).filter(
+                                              (c: ConnectorInstance) => c.status === 'active',
+                                            ).length,
+                                          })}
+                                        </span>
+                                        <Button
+                                          type='link'
+                                          size='small'
+                                          onClick={() => {
+                                            router.push('/construct/connectors');
+                                            setIsConnectorPanelOpen(false);
+                                          }}
+                                          className='text-[10px] p-0 h-auto'
+                                        >
+                                          {t('picker_manage_connector')}
+                                        </Button>
+                                      </div>
                                     </div>
-                                    <div className='border-t border-gray-100 dark:border-gray-700 px-3 py-2 flex items-center justify-between bg-gray-50/50 dark:bg-gray-900/50'>
-                                      <span className='text-[10px] text-gray-400'>
-                                        {t('picker_connector_count', {
-                                          count: (connectorsList || []).filter(
-                                            (c: ConnectorInstance) => c.status === 'active',
-                                          ).length,
-                                        })}
-                                      </span>
-                                      <Button
-                                        type='link'
-                                        size='small'
-                                        onClick={() => {
-                                          router.push('/construct/connectors');
-                                          setIsConnectorPanelOpen(false);
-                                        }}
-                                        className='text-[10px] p-0 h-auto'
-                                      >
-                                        {t('picker_manage_connector')}
-                                      </Button>
-                                    </div>
-                                  </div>
-                                }
-                              >
-                                <Tooltip
-                                  title={
-                                    selectedConnectors.length === 0
-                                      ? t('select_mcp')
-                                      : selectedConnectors.length === 1
-                                        ? t('connector_selected', { name: selectedConnectors[0].display_name })
-                                        : t('connectors_selected', {
-                                            count: selectedConnectors.length,
-                                            names: selectedConnectors.map(c => c.display_name).join('、'),
-                                          })
                                   }
                                 >
-                                  <Button
-                                    type='text'
-                                    shape='circle'
-                                    size='small'
-                                    className={`relative flex items-center justify-center flex-shrink-0 transition-all ${
-                                      selectedConnectors.length > 0
-                                        ? 'bg-gradient-to-br from-[#8b5cf6] to-[#6366f1] text-white border border-transparent shadow-[0_2px_4px_rgba(139,92,246,0.3),inset_0_1px_0_rgba(255,255,255,0.3)] hover:-translate-y-[0.5px] hover:shadow-[0_4px_8px_rgba(139,92,246,0.4),inset_0_1px_0_rgba(255,255,255,0.3)]'
-                                        : 'text-gray-500 hover:text-violet-600 bg-gradient-to-b from-white to-gray-50 dark:from-[#2a2b2f] dark:to-[#1e1f24] dark:text-gray-300 border border-gray-200/80 dark:border-white/10 shadow-[0_1px_2px_rgba(0,0,0,0.05),inset_0_1px_0_rgba(255,255,255,1)] dark:shadow-[0_1px_2px_rgba(0,0,0,0.2),inset_0_1px_0_rgba(255,255,255,0.05)] hover:-translate-y-[0.5px] hover:shadow-[0_2px_4px_rgba(0,0,0,0.06),inset_0_1px_0_rgba(255,255,255,1)] dark:hover:border-white/20'
-                                    }`}
+                                  <Tooltip
+                                    title={
+                                      selectedConnectors.length === 0
+                                        ? t('select_mcp')
+                                        : selectedConnectors.length === 1
+                                          ? t('connector_selected', { name: selectedConnectors[0].display_name })
+                                          : t('connectors_selected', {
+                                              count: selectedConnectors.length,
+                                              names: selectedConnectors.map(c => c.display_name).join('、'),
+                                            })
+                                    }
                                   >
-                                    <div className='relative'>
-                                      <ApiOutlined className={selectedConnectors.length > 0 ? 'text-white' : ''} />
-                                      {selectedConnectors.length > 0 && (
-                                        <span className='absolute -top-1.5 -right-1.5 bg-white text-violet-600 text-[8px] rounded-full w-3.5 h-3.5 flex items-center justify-center font-bold shadow-sm ring-1 ring-violet-500/30'>
-                                          {selectedConnectors.length}
-                                        </span>
-                                      )}
-                                    </div>
-                                  </Button>
-                                </Tooltip>
-                              </Popover>
+                                    <Button
+                                      type='text'
+                                      shape='circle'
+                                      size='small'
+                                      className={`relative flex items-center justify-center flex-shrink-0 transition-all ${
+                                        selectedConnectors.length > 0
+                                          ? 'bg-gradient-to-br from-[#8b5cf6] to-[#6366f1] text-white border border-transparent shadow-[0_2px_4px_rgba(139,92,246,0.3),inset_0_1px_0_rgba(255,255,255,0.3)] hover:-translate-y-[0.5px] hover:shadow-[0_4px_8px_rgba(139,92,246,0.4),inset_0_1px_0_rgba(255,255,255,0.3)]'
+                                          : 'text-gray-500 hover:text-violet-600 bg-gradient-to-b from-white to-gray-50 dark:from-[#2a2b2f] dark:to-[#1e1f24] dark:text-gray-300 border border-gray-200/80 dark:border-white/10 shadow-[0_1px_2px_rgba(0,0,0,0.05),inset_0_1px_0_rgba(255,255,255,1)] dark:shadow-[0_1px_2px_rgba(0,0,0,0.2),inset_0_1px_0_rgba(255,255,255,0.05)] hover:-translate-y-[0.5px] hover:shadow-[0_2px_4px_rgba(0,0,0,0.06),inset_0_1px_0_rgba(255,255,255,1)] dark:hover:border-white/20'
+                                      }`}
+                                    >
+                                      <div className='relative'>
+                                        <ApiOutlined className={selectedConnectors.length > 0 ? 'text-white' : ''} />
+                                        {selectedConnectors.length > 0 && (
+                                          <span className='absolute -top-1.5 -right-1.5 bg-white text-violet-600 text-[8px] rounded-full w-3.5 h-3.5 flex items-center justify-center font-bold shadow-sm ring-1 ring-violet-500/30'>
+                                            {selectedConnectors.length}
+                                          </span>
+                                        )}
+                                      </div>
+                                    </Button>
+                                  </Tooltip>
+                                </Popover>
+                              )}
 
-                              {/* Separator dot */}
-                              <div className='w-px h-4 bg-gray-200 dark:bg-gray-700 mx-0.5' />
+                              {exploreVisibility.modelSelector && (
+                                <>
+                                  {/* Separator dot */}
+                                  <div className='w-px h-4 bg-gray-200 dark:bg-gray-700 mx-0.5' />
 
-                              {/* Model Selector with premium styling */}
-                              <div className='model-selector-premium'>
-                                <ModelSelector onChange={val => setModel(val)} />
-                              </div>
-                              <style
-                                dangerouslySetInnerHTML={{
-                                  __html: `
+                                  {/* Model Selector with premium styling */}
+                                  <div className='model-selector-premium'>
+                                    <ModelSelector onChange={val => setModel(val)} />
+                                  </div>
+                                  <style
+                                    dangerouslySetInnerHTML={{
+                                      __html: `
                                   .model-selector-premium .ant-select { border-radius: 8px !important; border: none !important; }
                                   .model-selector-premium .ant-select-selector { background: linear-gradient(180deg, #ffffff 0%, #f9fafb 100%) !important; border: 1px solid rgba(0,0,0,0.12) !important; box-shadow: 0 1px 2px rgba(0,0,0,0.05), inset 0 1px 0 rgba(255,255,255,1) !important; border-radius: 8px !important; transition: all 0.2s ease !important; padding: 0 8px !important; }
                                   .dark .model-selector-premium .ant-select-selector { background: linear-gradient(180deg, #2a2b2f 0%, #1e1f24 100%) !important; border: 1px solid rgba(255,255,255,0.1) !important; box-shadow: 0 1px 2px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.05) !important; }
@@ -3568,8 +3610,10 @@ const Playground: NextPage = () => {
                                   .dark .ant-select-dropdown .ant-select-item-option-selected { background-color: rgba(255,255,255,0.08) !important; color: #e2e8f0 !important; }
                                   .dark .ant-select-dropdown .ant-select-item-option-active:not(.ant-select-item-option-selected) { background-color: rgba(255,255,255,0.04) !important; }
                                 `,
-                                }}
-                              />
+                                    }}
+                                  />
+                                </>
+                              )}
                             </div>
 
                             <div className='flex items-center gap-2.5'>
@@ -3862,9 +3906,11 @@ const Playground: NextPage = () => {
                         onLegacyPreview={openLegacyFilePreview}
                         onClearAll={clearComposerAttachments}
                         addControl={
-                          <Upload {...uploadProps}>
-                            <AttachmentRailAddButton />
-                          </Upload>
+                          exploreVisibility.fileUpload ? (
+                            <Upload {...uploadProps}>
+                              <AttachmentRailAddButton />
+                            </Upload>
+                          ) : undefined
                         }
                         preview={showInlineAttachmentPreview ? null : sessionFilePreview}
                         onClosePreview={closeSessionFilePreview}
@@ -3914,7 +3960,12 @@ const Playground: NextPage = () => {
                         onChange={e => {
                           const newValue = e.target.value;
                           setQuery(newValue);
-                          if (newValue === '/' && !isSkillPanelOpen && !selectedSkill) {
+                          if (
+                            exploreVisibility.skillSelector &&
+                            newValue === '/' &&
+                            !isSkillPanelOpen &&
+                            !selectedSkill
+                          ) {
                             setIsSkillPanelOpen(true);
                           }
                         }}
@@ -3937,603 +3988,631 @@ const Playground: NextPage = () => {
                       <div className='flex items-center justify-between px-1 mt-1'>
                         <div className='flex items-center gap-4'>
                           {/* Add Button with Dropdown Menu */}
-                          <Dropdown
-                            menu={{
-                              items: [
-                                {
-                                  key: 'upload',
-                                  label: (
-                                    <Upload {...uploadProps}>
-                                      <div className='w-full'>{t('add_from_local')}</div>
-                                    </Upload>
-                                  ),
-                                  icon: <PaperClipOutlined />,
-                                },
-                                {
-                                  key: 'skill',
-                                  label: t('use_skill'),
-                                  icon: <ThunderboltOutlined />,
-                                  onClick: () => setIsSkillPanelOpen(true),
-                                },
-                                {
-                                  key: 'knowledge',
-                                  label: t('use_knowledge'),
-                                  icon: <BookOutlined />,
-                                  onClick: () => setIsKnowledgePanelOpen(true),
-                                },
-                                {
-                                  key: 'database',
-                                  label: t('use_database'),
-                                  icon: <DatabaseOutlined />,
-                                  onClick: () => setTimeout(() => setIsDbPanelOpen(true), 100),
-                                },
-                                {
-                                  key: 'connector',
-                                  label: t('use_connector'),
-                                  icon: <ApiOutlined />,
-                                  onClick: () => setIsConnectorPanelOpen(true),
-                                },
-                              ],
-                            }}
-                            trigger={['click']}
-                          >
-                            <Tooltip title={t('add_context')}>
-                              <Button
-                                type='text'
-                                shape='circle'
-                                size='small'
-                                icon={<PlusOutlined />}
-                                className='flex items-center justify-center text-gray-500 hover:text-violet-600 bg-gradient-to-b from-white to-gray-50 dark:from-[#2a2b2f] dark:to-[#1e1f24] dark:text-gray-300 border border-gray-200/80 dark:border-white/10 shadow-[0_1px_2px_rgba(0,0,0,0.05),inset_0_1px_0_rgba(255,255,255,1)] dark:shadow-[0_1px_2px_rgba(0,0,0,0.2),inset_0_1px_0_rgba(255,255,255,0.05)] hover:-translate-y-[0.5px] hover:shadow-[0_2px_4px_rgba(0,0,0,0.06),inset_0_1px_0_rgba(255,255,255,1)] dark:hover:border-white/20 transition-all flex-shrink-0'
-                              />
-                            </Tooltip>
-                          </Dropdown>
+                          {hasAddContextOptions && (
+                            <Dropdown
+                              menu={{
+                                items: [
+                                  exploreVisibility.fileUpload
+                                    ? {
+                                        key: 'upload',
+                                        label: (
+                                          <Upload {...uploadProps}>
+                                            <div className='w-full'>{t('add_from_local')}</div>
+                                          </Upload>
+                                        ),
+                                        icon: <PaperClipOutlined />,
+                                      }
+                                    : null,
+                                  exploreVisibility.skillSelector
+                                    ? {
+                                        key: 'skill',
+                                        label: t('use_skill'),
+                                        icon: <ThunderboltOutlined />,
+                                        onClick: () => setIsSkillPanelOpen(true),
+                                      }
+                                    : null,
+                                  exploreVisibility.knowledgeBaseSelector
+                                    ? {
+                                        key: 'knowledge',
+                                        label: t('use_knowledge'),
+                                        icon: <BookOutlined />,
+                                        onClick: () => setIsKnowledgePanelOpen(true),
+                                      }
+                                    : null,
+                                  exploreVisibility.dataSourceSelector
+                                    ? {
+                                        key: 'database',
+                                        label: t('use_database'),
+                                        icon: <DatabaseOutlined />,
+                                        onClick: () => setTimeout(() => setIsDbPanelOpen(true), 100),
+                                      }
+                                    : null,
+                                  exploreVisibility.connectorSelector
+                                    ? {
+                                        key: 'connector',
+                                        label: t('use_connector'),
+                                        icon: <ApiOutlined />,
+                                        onClick: () => setIsConnectorPanelOpen(true),
+                                      }
+                                    : null,
+                                ],
+                              }}
+                              trigger={['click']}
+                            >
+                              <Tooltip title={t('add_context')}>
+                                <Button
+                                  type='text'
+                                  shape='circle'
+                                  size='small'
+                                  icon={<PlusOutlined />}
+                                  className='flex items-center justify-center text-gray-500 hover:text-violet-600 bg-gradient-to-b from-white to-gray-50 dark:from-[#2a2b2f] dark:to-[#1e1f24] dark:text-gray-300 border border-gray-200/80 dark:border-white/10 shadow-[0_1px_2px_rgba(0,0,0,0.05),inset_0_1px_0_rgba(255,255,255,1)] dark:shadow-[0_1px_2px_rgba(0,0,0,0.2),inset_0_1px_0_rgba(255,255,255,0.05)] hover:-translate-y-[0.5px] hover:shadow-[0_2px_4px_rgba(0,0,0,0.06),inset_0_1px_0_rgba(255,255,255,1)] dark:hover:border-white/20 transition-all flex-shrink-0'
+                                />
+                              </Tooltip>
+                            </Dropdown>
+                          )}
 
                           {/* Skill Selector Button with Badge - Purple Gradient */}
-                          <Popover
-                            trigger='click'
-                            placement='topLeft'
-                            open={isSkillPanelOpen}
-                            onOpenChange={setIsSkillPanelOpen}
-                            overlayClassName='manus-skill-menu'
-                            overlayInnerStyle={{ padding: 0, borderRadius: 12 }}
-                            content={
-                              <div className='w-[320px] bg-white dark:bg-[#2c2d31] rounded-xl shadow-xl overflow-hidden'>
-                                <div className='p-3 border-b border-gray-100 dark:border-gray-700'>
-                                  <Input
-                                    placeholder={t('search_skill')}
-                                    prefix={<SearchOutlined className='text-gray-400' />}
-                                    value={skillSearchQuery}
-                                    onChange={e => setSkillSearchQuery(e.target.value)}
-                                    className='rounded-lg'
-                                    allowClear
-                                    size='small'
-                                  />
-                                </div>
-                                <div className='max-h-[300px] overflow-y-auto'>
-                                  {(skillsList || [])
-                                    .filter(
+                          {exploreVisibility.skillSelector && (
+                            <Popover
+                              trigger='click'
+                              placement='topLeft'
+                              open={isSkillPanelOpen}
+                              onOpenChange={setIsSkillPanelOpen}
+                              overlayClassName='manus-skill-menu'
+                              overlayInnerStyle={{ padding: 0, borderRadius: 12 }}
+                              content={
+                                <div className='w-[320px] bg-white dark:bg-[#2c2d31] rounded-xl shadow-xl overflow-hidden'>
+                                  <div className='p-3 border-b border-gray-100 dark:border-gray-700'>
+                                    <Input
+                                      placeholder={t('search_skill')}
+                                      prefix={<SearchOutlined className='text-gray-400' />}
+                                      value={skillSearchQuery}
+                                      onChange={e => setSkillSearchQuery(e.target.value)}
+                                      className='rounded-lg'
+                                      allowClear
+                                      size='small'
+                                    />
+                                  </div>
+                                  <div className='max-h-[300px] overflow-y-auto'>
+                                    {(skillsList || [])
+                                      .filter(
+                                        skill =>
+                                          !skillSearchQuery ||
+                                          skill.name.toLowerCase().includes(skillSearchQuery.toLowerCase()) ||
+                                          skill.description.toLowerCase().includes(skillSearchQuery.toLowerCase()),
+                                      )
+                                      .map(skill => (
+                                        <div
+                                          key={skill.id}
+                                          onClick={() => {
+                                            if (selectedSkill?.id === skill.id) {
+                                              setSelectedSkill(null);
+                                              setQuery('');
+                                            } else {
+                                              setSelectedSkill(skill);
+                                              setQuery(`/${skill.name} `);
+                                            }
+                                            setIsSkillPanelOpen(false);
+                                            setSkillSearchQuery('');
+                                          }}
+                                          className={`flex items-start gap-3 px-3 py-2.5 cursor-pointer transition-all hover:bg-gray-50 dark:hover:bg-gray-800 ${
+                                            selectedSkill?.id === skill.id ? 'bg-purple-50 dark:bg-purple-900/20' : ''
+                                          }`}
+                                        >
+                                          <div className='flex-shrink-0 w-7 h-7 rounded-lg bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center text-white text-xs'>
+                                            {skill.icon || <ThunderboltOutlined />}
+                                          </div>
+                                          <div className='flex-1 min-w-0'>
+                                            <div className='flex items-center gap-2'>
+                                              <span className='font-medium text-sm text-gray-800 dark:text-gray-200'>
+                                                {skill.name}
+                                              </span>
+                                              <span
+                                                className={`text-[10px] px-1.5 py-0.5 rounded ${
+                                                  skill.type === 'official'
+                                                    ? 'bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400'
+                                                    : 'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400'
+                                                }`}
+                                              >
+                                                {skill.type === 'official'
+                                                  ? t('picker_skill_official')
+                                                  : t('picker_skill_personal')}
+                                              </span>
+                                            </div>
+                                            <p className='text-xs text-gray-500 dark:text-gray-400 mt-0.5 line-clamp-2'>
+                                              {skill.description}
+                                            </p>
+                                          </div>
+                                          {selectedSkill?.id === skill.id && (
+                                            <CheckCircleFilled className='text-purple-500 flex-shrink-0 text-sm' />
+                                          )}
+                                        </div>
+                                      ))}
+                                    {(skillsList || []).filter(
                                       skill =>
                                         !skillSearchQuery ||
                                         skill.name.toLowerCase().includes(skillSearchQuery.toLowerCase()) ||
                                         skill.description.toLowerCase().includes(skillSearchQuery.toLowerCase()),
-                                    )
-                                    .map(skill => (
-                                      <div
-                                        key={skill.id}
-                                        onClick={() => {
-                                          if (selectedSkill?.id === skill.id) {
-                                            setSelectedSkill(null);
-                                            setQuery('');
-                                          } else {
-                                            setSelectedSkill(skill);
-                                            setQuery(`/${skill.name} `);
-                                          }
-                                          setIsSkillPanelOpen(false);
-                                          setSkillSearchQuery('');
-                                        }}
-                                        className={`flex items-start gap-3 px-3 py-2.5 cursor-pointer transition-all hover:bg-gray-50 dark:hover:bg-gray-800 ${
-                                          selectedSkill?.id === skill.id ? 'bg-purple-50 dark:bg-purple-900/20' : ''
-                                        }`}
-                                      >
-                                        <div className='flex-shrink-0 w-7 h-7 rounded-lg bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center text-white text-xs'>
-                                          {skill.icon || <ThunderboltOutlined />}
+                                    ).length === 0 && (
+                                      <div className='text-center py-8 text-gray-400'>
+                                        <ThunderboltOutlined className='text-2xl mb-2 opacity-50' />
+                                        <div className='text-xs'>
+                                          {skillSearchQuery ? t('picker_skill_no_match') : t('picker_skill_empty')}
                                         </div>
-                                        <div className='flex-1 min-w-0'>
-                                          <div className='flex items-center gap-2'>
-                                            <span className='font-medium text-sm text-gray-800 dark:text-gray-200'>
-                                              {skill.name}
-                                            </span>
-                                            <span
-                                              className={`text-[10px] px-1.5 py-0.5 rounded ${
-                                                skill.type === 'official'
-                                                  ? 'bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400'
-                                                  : 'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400'
-                                              }`}
-                                            >
-                                              {skill.type === 'official'
-                                                ? t('picker_skill_official')
-                                                : t('picker_skill_personal')}
-                                            </span>
-                                          </div>
-                                          <p className='text-xs text-gray-500 dark:text-gray-400 mt-0.5 line-clamp-2'>
-                                            {skill.description}
-                                          </p>
-                                        </div>
-                                        {selectedSkill?.id === skill.id && (
-                                          <CheckCircleFilled className='text-purple-500 flex-shrink-0 text-sm' />
-                                        )}
                                       </div>
-                                    ))}
-                                  {(skillsList || []).filter(
-                                    skill =>
-                                      !skillSearchQuery ||
-                                      skill.name.toLowerCase().includes(skillSearchQuery.toLowerCase()) ||
-                                      skill.description.toLowerCase().includes(skillSearchQuery.toLowerCase()),
-                                  ).length === 0 && (
-                                    <div className='text-center py-8 text-gray-400'>
-                                      <ThunderboltOutlined className='text-2xl mb-2 opacity-50' />
-                                      <div className='text-xs'>
-                                        {skillSearchQuery ? t('picker_skill_no_match') : t('picker_skill_empty')}
-                                      </div>
-                                    </div>
-                                  )}
+                                    )}
+                                  </div>
+                                  <div className='border-t border-gray-100 dark:border-gray-700 px-3 py-2 flex items-center justify-between bg-gray-50/50 dark:bg-gray-900/50'>
+                                    <span className='text-[10px] text-gray-400'>
+                                      {t('picker_skill_count', { count: (skillsList || []).length })}
+                                    </span>
+                                    <Button
+                                      type='link'
+                                      size='small'
+                                      onClick={() => {
+                                        router.push('/construct/skills');
+                                        setIsSkillPanelOpen(false);
+                                      }}
+                                      className='text-[10px] p-0 h-auto'
+                                    >
+                                      {t('picker_manage_skill')}
+                                    </Button>
+                                  </div>
                                 </div>
-                                <div className='border-t border-gray-100 dark:border-gray-700 px-3 py-2 flex items-center justify-between bg-gray-50/50 dark:bg-gray-900/50'>
-                                  <span className='text-[10px] text-gray-400'>
-                                    {t('picker_skill_count', { count: (skillsList || []).length })}
-                                  </span>
-                                  <Button
-                                    type='link'
-                                    size='small'
-                                    onClick={() => {
-                                      router.push('/construct/skills');
-                                      setIsSkillPanelOpen(false);
-                                    }}
-                                    className='text-[10px] p-0 h-auto'
-                                  >
-                                    {t('picker_manage_skill')}
-                                  </Button>
-                                </div>
-                              </div>
-                            }
-                          >
-                            <Tooltip
-                              title={
-                                selectedSkill ? t('skill_selected', { name: selectedSkill.name }) : t('select_skill')
                               }
                             >
-                              <Button
-                                type='text'
-                                shape='circle'
-                                size='small'
-                                className={`relative flex items-center justify-center flex-shrink-0 transition-all ${
-                                  selectedSkill
-                                    ? 'bg-gradient-to-br from-[#a78bfa] to-[#7c3aed] text-white border border-transparent shadow-[0_2px_4px_rgba(139,92,246,0.3),inset_0_1px_0_rgba(255,255,255,0.3)] hover:-translate-y-[0.5px] hover:shadow-[0_4px_8px_rgba(139,92,246,0.4),inset_0_1px_0_rgba(255,255,255,0.3)]'
-                                    : 'text-gray-500 hover:text-violet-600 bg-gradient-to-b from-white to-gray-50 dark:from-[#2a2b2f] dark:to-[#1e1f24] dark:text-gray-300 border border-gray-200/80 dark:border-white/10 shadow-[0_1px_2px_rgba(0,0,0,0.05),inset_0_1px_0_rgba(255,255,255,1)] dark:shadow-[0_1px_2px_rgba(0,0,0,0.2),inset_0_1px_0_rgba(255,255,255,0.05)] hover:-translate-y-[0.5px] hover:shadow-[0_2px_4px_rgba(0,0,0,0.06),inset_0_1px_0_rgba(255,255,255,1)] dark:hover:border-white/20'
-                                }`}
+                              <Tooltip
+                                title={
+                                  selectedSkill ? t('skill_selected', { name: selectedSkill.name }) : t('select_skill')
+                                }
                               >
-                                <div className='relative'>
-                                  <ThunderboltOutlined className={selectedSkill ? 'text-white' : ''} />
-                                  {selectedSkill && (
-                                    <span className='absolute -top-1.5 -right-1.5 bg-white text-[#7c3aed] text-[8px] rounded-full w-3.5 h-3.5 flex items-center justify-center font-bold shadow-sm ring-1 ring-[#7c3aed]/30'>
-                                      1
-                                    </span>
-                                  )}
-                                </div>
-                              </Button>
-                            </Tooltip>
-                          </Popover>
+                                <Button
+                                  type='text'
+                                  shape='circle'
+                                  size='small'
+                                  className={`relative flex items-center justify-center flex-shrink-0 transition-all ${
+                                    selectedSkill
+                                      ? 'bg-gradient-to-br from-[#a78bfa] to-[#7c3aed] text-white border border-transparent shadow-[0_2px_4px_rgba(139,92,246,0.3),inset_0_1px_0_rgba(255,255,255,0.3)] hover:-translate-y-[0.5px] hover:shadow-[0_4px_8px_rgba(139,92,246,0.4),inset_0_1px_0_rgba(255,255,255,0.3)]'
+                                      : 'text-gray-500 hover:text-violet-600 bg-gradient-to-b from-white to-gray-50 dark:from-[#2a2b2f] dark:to-[#1e1f24] dark:text-gray-300 border border-gray-200/80 dark:border-white/10 shadow-[0_1px_2px_rgba(0,0,0,0.05),inset_0_1px_0_rgba(255,255,255,1)] dark:shadow-[0_1px_2px_rgba(0,0,0,0.2),inset_0_1px_0_rgba(255,255,255,0.05)] hover:-translate-y-[0.5px] hover:shadow-[0_2px_4px_rgba(0,0,0,0.06),inset_0_1px_0_rgba(255,255,255,1)] dark:hover:border-white/20'
+                                  }`}
+                                >
+                                  <div className='relative'>
+                                    <ThunderboltOutlined className={selectedSkill ? 'text-white' : ''} />
+                                    {selectedSkill && (
+                                      <span className='absolute -top-1.5 -right-1.5 bg-white text-[#7c3aed] text-[8px] rounded-full w-3.5 h-3.5 flex items-center justify-center font-bold shadow-sm ring-1 ring-[#7c3aed]/30'>
+                                        1
+                                      </span>
+                                    )}
+                                  </div>
+                                </Button>
+                              </Tooltip>
+                            </Popover>
+                          )}
 
                           {/* Connector Selector Button */}
-                          <Popover
-                            trigger='click'
-                            placement='topLeft'
-                            open={isConnectorPanelOpen}
-                            onOpenChange={setIsConnectorPanelOpen}
-                            overlayClassName='manus-skill-menu'
-                            overlayInnerStyle={{ padding: 0, borderRadius: 12 }}
-                            content={
-                              <div className='w-[320px] bg-white dark:bg-[#2c2d31] rounded-xl shadow-xl overflow-hidden'>
-                                <div className='p-3 border-b border-gray-100 dark:border-gray-700'>
-                                  <Input
-                                    placeholder={t('search_connector')}
-                                    prefix={<SearchOutlined className='text-gray-400' />}
-                                    value={connectorSearchQuery}
-                                    onChange={e => setConnectorSearchQuery(e.target.value)}
-                                    className='rounded-lg'
-                                    allowClear
-                                    size='small'
-                                  />
-                                </div>
-                                <div className='max-h-[300px] overflow-y-auto'>
-                                  {(connectorsList || [])
-                                    .filter(
+                          {exploreVisibility.connectorSelector && (
+                            <Popover
+                              trigger='click'
+                              placement='topLeft'
+                              open={isConnectorPanelOpen}
+                              onOpenChange={setIsConnectorPanelOpen}
+                              overlayClassName='manus-skill-menu'
+                              overlayInnerStyle={{ padding: 0, borderRadius: 12 }}
+                              content={
+                                <div className='w-[320px] bg-white dark:bg-[#2c2d31] rounded-xl shadow-xl overflow-hidden'>
+                                  <div className='p-3 border-b border-gray-100 dark:border-gray-700'>
+                                    <Input
+                                      placeholder={t('search_connector')}
+                                      prefix={<SearchOutlined className='text-gray-400' />}
+                                      value={connectorSearchQuery}
+                                      onChange={e => setConnectorSearchQuery(e.target.value)}
+                                      className='rounded-lg'
+                                      allowClear
+                                      size='small'
+                                    />
+                                  </div>
+                                  <div className='max-h-[300px] overflow-y-auto'>
+                                    {(connectorsList || [])
+                                      .filter(
+                                        (c: ConnectorInstance) =>
+                                          c.status === 'active' &&
+                                          (!connectorSearchQuery ||
+                                            c.display_name.toLowerCase().includes(connectorSearchQuery.toLowerCase()) ||
+                                            c.connector_type
+                                              .toLowerCase()
+                                              .includes(connectorSearchQuery.toLowerCase())),
+                                      )
+                                      .map((c: ConnectorInstance) => (
+                                        <div
+                                          key={c.id}
+                                          onClick={() => {
+                                            setSelectedConnectors(prev =>
+                                              prev.some(s => s.id === c.id)
+                                                ? prev.filter(s => s.id !== c.id)
+                                                : [...prev, c],
+                                            );
+                                            setConnectorSearchQuery('');
+                                          }}
+                                          className={`flex items-start gap-3 px-3 py-2.5 cursor-pointer transition-all hover:bg-gray-50 dark:hover:bg-gray-800 ${
+                                            selectedConnectors.some(s => s.id === c.id)
+                                              ? 'bg-violet-50 dark:bg-violet-900/20'
+                                              : ''
+                                          }`}
+                                        >
+                                          <div className='flex-shrink-0 w-7 h-7 rounded-lg bg-gradient-to-br from-violet-500 to-indigo-500 flex items-center justify-center text-white text-xs'>
+                                            <ApiOutlined />
+                                          </div>
+                                          <div className='flex-1 min-w-0'>
+                                            <div className='flex items-center gap-2'>
+                                              <span className='font-medium text-sm text-gray-800 dark:text-gray-200'>
+                                                {c.display_name}
+                                              </span>
+                                              <span className='text-[10px] px-1.5 py-0.5 rounded bg-green-100 text-green-600 dark:bg-green-900/30 dark:text-green-400'>
+                                                {t('picker_connector_active')}
+                                              </span>
+                                            </div>
+                                            <p
+                                              className='text-xs text-gray-500 dark:text-gray-400 mt-0.5 truncate'
+                                              title={(c.config?.description as string) || c.connector_type}
+                                            >
+                                              {(c.config?.description as string) || c.connector_type}
+                                            </p>
+                                          </div>
+                                          {selectedConnectors.some(s => s.id === c.id) && (
+                                            <CheckCircleFilled className='text-violet-500 flex-shrink-0 text-sm' />
+                                          )}
+                                        </div>
+                                      ))}
+                                    {(connectorsList || []).filter(
                                       (c: ConnectorInstance) =>
                                         c.status === 'active' &&
                                         (!connectorSearchQuery ||
                                           c.display_name.toLowerCase().includes(connectorSearchQuery.toLowerCase()) ||
                                           c.connector_type.toLowerCase().includes(connectorSearchQuery.toLowerCase())),
-                                    )
-                                    .map((c: ConnectorInstance) => (
-                                      <div
-                                        key={c.id}
-                                        onClick={() => {
-                                          setSelectedConnectors(prev =>
-                                            prev.some(s => s.id === c.id)
-                                              ? prev.filter(s => s.id !== c.id)
-                                              : [...prev, c],
-                                          );
-                                          setConnectorSearchQuery('');
-                                        }}
-                                        className={`flex items-start gap-3 px-3 py-2.5 cursor-pointer transition-all hover:bg-gray-50 dark:hover:bg-gray-800 ${
-                                          selectedConnectors.some(s => s.id === c.id)
-                                            ? 'bg-violet-50 dark:bg-violet-900/20'
-                                            : ''
-                                        }`}
-                                      >
-                                        <div className='flex-shrink-0 w-7 h-7 rounded-lg bg-gradient-to-br from-violet-500 to-indigo-500 flex items-center justify-center text-white text-xs'>
-                                          <ApiOutlined />
+                                    ).length === 0 && (
+                                      <div className='text-center py-8 text-gray-400'>
+                                        <ApiOutlined className='text-2xl mb-2 opacity-50' />
+                                        <div className='text-xs'>
+                                          {connectorSearchQuery
+                                            ? t('picker_connector_no_match')
+                                            : t('picker_connector_empty')}
                                         </div>
-                                        <div className='flex-1 min-w-0'>
-                                          <div className='flex items-center gap-2'>
-                                            <span className='font-medium text-sm text-gray-800 dark:text-gray-200'>
-                                              {c.display_name}
-                                            </span>
-                                            <span className='text-[10px] px-1.5 py-0.5 rounded bg-green-100 text-green-600 dark:bg-green-900/30 dark:text-green-400'>
-                                              {t('picker_connector_active')}
-                                            </span>
-                                          </div>
-                                          <p
-                                            className='text-xs text-gray-500 dark:text-gray-400 mt-0.5 truncate'
-                                            title={(c.config?.description as string) || c.connector_type}
-                                          >
-                                            {(c.config?.description as string) || c.connector_type}
-                                          </p>
-                                        </div>
-                                        {selectedConnectors.some(s => s.id === c.id) && (
-                                          <CheckCircleFilled className='text-violet-500 flex-shrink-0 text-sm' />
-                                        )}
                                       </div>
-                                    ))}
-                                  {(connectorsList || []).filter(
-                                    (c: ConnectorInstance) =>
-                                      c.status === 'active' &&
-                                      (!connectorSearchQuery ||
-                                        c.display_name.toLowerCase().includes(connectorSearchQuery.toLowerCase()) ||
-                                        c.connector_type.toLowerCase().includes(connectorSearchQuery.toLowerCase())),
-                                  ).length === 0 && (
-                                    <div className='text-center py-8 text-gray-400'>
-                                      <ApiOutlined className='text-2xl mb-2 opacity-50' />
-                                      <div className='text-xs'>
-                                        {connectorSearchQuery
-                                          ? t('picker_connector_no_match')
-                                          : t('picker_connector_empty')}
-                                      </div>
-                                    </div>
-                                  )}
+                                    )}
+                                  </div>
+                                  <div className='border-t border-gray-100 dark:border-gray-700 px-3 py-2 flex items-center justify-between bg-gray-50/50 dark:bg-gray-900/50'>
+                                    <span className='text-[10px] text-gray-400'>
+                                      {t('picker_connector_count', {
+                                        count: (connectorsList || []).filter(
+                                          (c: ConnectorInstance) => c.status === 'active',
+                                        ).length,
+                                      })}
+                                    </span>
+                                    <Button
+                                      type='link'
+                                      size='small'
+                                      onClick={() => {
+                                        router.push('/construct/connectors');
+                                        setIsConnectorPanelOpen(false);
+                                      }}
+                                      className='text-[10px] p-0 h-auto'
+                                    >
+                                      {t('picker_manage_connector')}
+                                    </Button>
+                                  </div>
                                 </div>
-                                <div className='border-t border-gray-100 dark:border-gray-700 px-3 py-2 flex items-center justify-between bg-gray-50/50 dark:bg-gray-900/50'>
-                                  <span className='text-[10px] text-gray-400'>
-                                    {t('picker_connector_count', {
-                                      count: (connectorsList || []).filter(
-                                        (c: ConnectorInstance) => c.status === 'active',
-                                      ).length,
-                                    })}
-                                  </span>
-                                  <Button
-                                    type='link'
-                                    size='small'
-                                    onClick={() => {
-                                      router.push('/construct/connectors');
-                                      setIsConnectorPanelOpen(false);
-                                    }}
-                                    className='text-[10px] p-0 h-auto'
-                                  >
-                                    {t('picker_manage_connector')}
-                                  </Button>
-                                </div>
-                              </div>
-                            }
-                          >
-                            <Tooltip
-                              title={
-                                selectedConnectors.length === 0
-                                  ? t('select_mcp')
-                                  : selectedConnectors.length === 1
-                                    ? t('connector_selected', { name: selectedConnectors[0].display_name })
-                                    : t('connectors_selected', {
-                                        count: selectedConnectors.length,
-                                        names: selectedConnectors.map(c => c.display_name).join('、'),
-                                      })
                               }
                             >
-                              <Button
-                                type='text'
-                                shape='circle'
-                                size='small'
-                                className={`relative flex items-center justify-center flex-shrink-0 transition-all ${
-                                  selectedConnectors.length > 0
-                                    ? 'bg-gradient-to-br from-[#8b5cf6] to-[#6366f1] text-white border border-transparent shadow-[0_2px_4px_rgba(139,92,246,0.3),inset_0_1px_0_rgba(255,255,255,0.3)] hover:-translate-y-[0.5px] hover:shadow-[0_4px_8px_rgba(139,92,246,0.4),inset_0_1px_0_rgba(255,255,255,0.3)]'
-                                    : 'text-gray-500 hover:text-violet-600 bg-gradient-to-b from-white to-gray-50 dark:from-[#2a2b2f] dark:to-[#1e1f24] dark:text-gray-300 border border-gray-200/80 dark:border-white/10 shadow-[0_1px_2px_rgba(0,0,0,0.05),inset_0_1px_0_rgba(255,255,255,1)] dark:shadow-[0_1px_2px_rgba(0,0,0,0.2),inset_0_1px_0_rgba(255,255,255,0.05)] hover:-translate-y-[0.5px] hover:shadow-[0_2px_4px_rgba(0,0,0,0.06),inset_0_1px_0_rgba(255,255,255,1)] dark:hover:border-white/20'
-                                }`}
+                              <Tooltip
+                                title={
+                                  selectedConnectors.length === 0
+                                    ? t('select_mcp')
+                                    : selectedConnectors.length === 1
+                                      ? t('connector_selected', { name: selectedConnectors[0].display_name })
+                                      : t('connectors_selected', {
+                                          count: selectedConnectors.length,
+                                          names: selectedConnectors.map(c => c.display_name).join('、'),
+                                        })
+                                }
                               >
-                                <div className='relative'>
-                                  <ApiOutlined className={selectedConnectors.length > 0 ? 'text-white' : ''} />
-                                  {selectedConnectors.length > 0 && (
-                                    <span className='absolute -top-1.5 -right-1.5 bg-white text-violet-600 text-[8px] rounded-full w-3.5 h-3.5 flex items-center justify-center font-bold shadow-sm ring-1 ring-violet-500/30'>
-                                      {selectedConnectors.length}
-                                    </span>
-                                  )}
-                                </div>
-                              </Button>
-                            </Tooltip>
-                          </Popover>
+                                <Button
+                                  type='text'
+                                  shape='circle'
+                                  size='small'
+                                  className={`relative flex items-center justify-center flex-shrink-0 transition-all ${
+                                    selectedConnectors.length > 0
+                                      ? 'bg-gradient-to-br from-[#8b5cf6] to-[#6366f1] text-white border border-transparent shadow-[0_2px_4px_rgba(139,92,246,0.3),inset_0_1px_0_rgba(255,255,255,0.3)] hover:-translate-y-[0.5px] hover:shadow-[0_4px_8px_rgba(139,92,246,0.4),inset_0_1px_0_rgba(255,255,255,0.3)]'
+                                      : 'text-gray-500 hover:text-violet-600 bg-gradient-to-b from-white to-gray-50 dark:from-[#2a2b2f] dark:to-[#1e1f24] dark:text-gray-300 border border-gray-200/80 dark:border-white/10 shadow-[0_1px_2px_rgba(0,0,0,0.05),inset_0_1px_0_rgba(255,255,255,1)] dark:shadow-[0_1px_2px_rgba(0,0,0,0.2),inset_0_1px_0_rgba(255,255,255,0.05)] hover:-translate-y-[0.5px] hover:shadow-[0_2px_4px_rgba(0,0,0,0.06),inset_0_1px_0_rgba(255,255,255,1)] dark:hover:border-white/20'
+                                  }`}
+                                >
+                                  <div className='relative'>
+                                    <ApiOutlined className={selectedConnectors.length > 0 ? 'text-white' : ''} />
+                                    {selectedConnectors.length > 0 && (
+                                      <span className='absolute -top-1.5 -right-1.5 bg-white text-violet-600 text-[8px] rounded-full w-3.5 h-3.5 flex items-center justify-center font-bold shadow-sm ring-1 ring-violet-500/30'>
+                                        {selectedConnectors.length}
+                                      </span>
+                                    )}
+                                  </div>
+                                </Button>
+                              </Tooltip>
+                            </Popover>
+                          )}
 
                           {/* Database Selector Popover - Blue themed */}
-                          <Popover
-                            trigger='click'
-                            placement='topLeft'
-                            open={isDbPanelOpen}
-                            onOpenChange={setIsDbPanelOpen}
-                            overlayClassName='manus-database-menu'
-                            overlayInnerStyle={{ padding: 0, borderRadius: 12 }}
-                            content={
-                              <div className='w-[320px] bg-white dark:bg-[#2c2d31] rounded-xl shadow-xl overflow-hidden'>
-                                <div className='p-3 border-b border-gray-100 dark:border-gray-700'>
-                                  <Input
-                                    placeholder={t('search_database')}
-                                    prefix={<SearchOutlined className='text-gray-400' />}
-                                    value={dbSearchQuery}
-                                    onChange={e => setDbSearchQuery(e.target.value)}
-                                    className='rounded-lg'
-                                    allowClear
-                                    size='small'
-                                  />
-                                </div>
-                                <div className='max-h-[300px] overflow-y-auto'>
-                                  {(dataSources || [])
-                                    .filter(
+                          {exploreVisibility.dataSourceSelector && (
+                            <Popover
+                              trigger='click'
+                              placement='topLeft'
+                              open={isDbPanelOpen}
+                              onOpenChange={setIsDbPanelOpen}
+                              overlayClassName='manus-database-menu'
+                              overlayInnerStyle={{ padding: 0, borderRadius: 12 }}
+                              content={
+                                <div className='w-[320px] bg-white dark:bg-[#2c2d31] rounded-xl shadow-xl overflow-hidden'>
+                                  <div className='p-3 border-b border-gray-100 dark:border-gray-700'>
+                                    <Input
+                                      placeholder={t('search_database')}
+                                      prefix={<SearchOutlined className='text-gray-400' />}
+                                      value={dbSearchQuery}
+                                      onChange={e => setDbSearchQuery(e.target.value)}
+                                      className='rounded-lg'
+                                      allowClear
+                                      size='small'
+                                    />
+                                  </div>
+                                  <div className='max-h-[300px] overflow-y-auto'>
+                                    {(dataSources || [])
+                                      .filter(
+                                        ds =>
+                                          !dbSearchQuery ||
+                                          ds.db_name.toLowerCase().includes(dbSearchQuery.toLowerCase()) ||
+                                          ds.type.toLowerCase().includes(dbSearchQuery.toLowerCase()) ||
+                                          (ds.description &&
+                                            ds.description.toLowerCase().includes(dbSearchQuery.toLowerCase())),
+                                      )
+                                      .map(ds => (
+                                        <div
+                                          key={ds.id}
+                                          onClick={() => {
+                                            setSelectedDb(ds);
+                                            setIsDbPanelOpen(false);
+                                            setDbSearchQuery('');
+                                          }}
+                                          className={`flex items-start gap-3 px-3 py-2.5 cursor-pointer transition-all hover:bg-gray-50 dark:hover:bg-gray-800 ${
+                                            selectedDb?.id === ds.id ? 'bg-blue-50 dark:bg-blue-900/20' : ''
+                                          }`}
+                                        >
+                                          <div className='flex-shrink-0 w-7 h-7 rounded-lg bg-gradient-to-br from-blue-500 to-cyan-500 flex items-center justify-center text-white text-xs'>
+                                            {getDbIcon(ds.type)}
+                                          </div>
+                                          <div className='flex-1 min-w-0'>
+                                            <div className='flex items-center gap-2'>
+                                              <span className='font-medium text-sm text-gray-800 dark:text-gray-200'>
+                                                {ds.db_name}
+                                              </span>
+                                              <span className='text-[10px] text-gray-400 bg-gray-100 dark:bg-gray-700 rounded px-1.5 py-0.5'>
+                                                {ds.type}
+                                              </span>
+                                            </div>
+                                            {ds.description && (
+                                              <p className='text-xs text-gray-500 dark:text-gray-400 mt-0.5 line-clamp-2'>
+                                                {ds.description}
+                                              </p>
+                                            )}
+                                          </div>
+                                          {selectedDb?.id === ds.id && (
+                                            <CheckCircleFilled className='text-blue-500 flex-shrink-0 text-sm' />
+                                          )}
+                                        </div>
+                                      ))}
+                                    {(dataSources || []).filter(
                                       ds =>
                                         !dbSearchQuery ||
                                         ds.db_name.toLowerCase().includes(dbSearchQuery.toLowerCase()) ||
                                         ds.type.toLowerCase().includes(dbSearchQuery.toLowerCase()) ||
                                         (ds.description &&
                                           ds.description.toLowerCase().includes(dbSearchQuery.toLowerCase())),
-                                    )
-                                    .map(ds => (
-                                      <div
-                                        key={ds.id}
-                                        onClick={() => {
-                                          setSelectedDb(ds);
-                                          setIsDbPanelOpen(false);
-                                          setDbSearchQuery('');
-                                        }}
-                                        className={`flex items-start gap-3 px-3 py-2.5 cursor-pointer transition-all hover:bg-gray-50 dark:hover:bg-gray-800 ${
-                                          selectedDb?.id === ds.id ? 'bg-blue-50 dark:bg-blue-900/20' : ''
-                                        }`}
-                                      >
-                                        <div className='flex-shrink-0 w-7 h-7 rounded-lg bg-gradient-to-br from-blue-500 to-cyan-500 flex items-center justify-center text-white text-xs'>
-                                          {getDbIcon(ds.type)}
+                                    ).length === 0 && (
+                                      <div className='text-center py-8 text-gray-400'>
+                                        <DatabaseOutlined className='text-2xl mb-2 opacity-50' />
+                                        <div className='text-xs'>
+                                          {dbSearchQuery ? t('picker_database_no_match') : t('picker_database_empty')}
                                         </div>
-                                        <div className='flex-1 min-w-0'>
-                                          <div className='flex items-center gap-2'>
-                                            <span className='font-medium text-sm text-gray-800 dark:text-gray-200'>
-                                              {ds.db_name}
-                                            </span>
-                                            <span className='text-[10px] text-gray-400 bg-gray-100 dark:bg-gray-700 rounded px-1.5 py-0.5'>
-                                              {ds.type}
-                                            </span>
-                                          </div>
-                                          {ds.description && (
-                                            <p className='text-xs text-gray-500 dark:text-gray-400 mt-0.5 line-clamp-2'>
-                                              {ds.description}
-                                            </p>
-                                          )}
-                                        </div>
-                                        {selectedDb?.id === ds.id && (
-                                          <CheckCircleFilled className='text-blue-500 flex-shrink-0 text-sm' />
-                                        )}
                                       </div>
-                                    ))}
-                                  {(dataSources || []).filter(
-                                    ds =>
-                                      !dbSearchQuery ||
-                                      ds.db_name.toLowerCase().includes(dbSearchQuery.toLowerCase()) ||
-                                      ds.type.toLowerCase().includes(dbSearchQuery.toLowerCase()) ||
-                                      (ds.description &&
-                                        ds.description.toLowerCase().includes(dbSearchQuery.toLowerCase())),
-                                  ).length === 0 && (
-                                    <div className='text-center py-8 text-gray-400'>
-                                      <DatabaseOutlined className='text-2xl mb-2 opacity-50' />
-                                      <div className='text-xs'>
-                                        {dbSearchQuery ? t('picker_database_no_match') : t('picker_database_empty')}
-                                      </div>
-                                    </div>
-                                  )}
+                                    )}
+                                  </div>
+                                  <div className='border-t border-gray-100 dark:border-gray-700 px-3 py-2 flex items-center justify-between bg-gray-50/50 dark:bg-gray-900/50'>
+                                    <span className='text-[10px] text-gray-400'>
+                                      {t('picker_database_count', { count: (dataSources || []).length })}
+                                    </span>
+                                    <Button
+                                      type='link'
+                                      size='small'
+                                      onClick={() => {
+                                        router.push('/construct/database');
+                                        setIsDbPanelOpen(false);
+                                      }}
+                                      className='text-[10px] p-0 h-auto'
+                                    >
+                                      {t('picker_manage_database')}
+                                    </Button>
+                                  </div>
                                 </div>
-                                <div className='border-t border-gray-100 dark:border-gray-700 px-3 py-2 flex items-center justify-between bg-gray-50/50 dark:bg-gray-900/50'>
-                                  <span className='text-[10px] text-gray-400'>
-                                    {t('picker_database_count', { count: (dataSources || []).length })}
-                                  </span>
-                                  <Button
-                                    type='link'
-                                    size='small'
-                                    onClick={() => {
-                                      router.push('/construct/database');
-                                      setIsDbPanelOpen(false);
-                                    }}
-                                    className='text-[10px] p-0 h-auto'
-                                  >
-                                    {t('picker_manage_database')}
-                                  </Button>
-                                </div>
-                              </div>
-                            }
-                          >
-                            <Tooltip
-                              title={
-                                selectedDb ? t('database_selected', { name: selectedDb.db_name }) : t('select_database')
                               }
                             >
-                              <Button
-                                type='text'
-                                shape='circle'
-                                size='small'
-                                className={`relative flex items-center justify-center flex-shrink-0 transition-all ${
+                              <Tooltip
+                                title={
                                   selectedDb
-                                    ? 'bg-gradient-to-br from-blue-400 to-blue-600 text-white border border-transparent shadow-[0_2px_4px_rgba(59,130,246,0.3),inset_0_1px_0_rgba(255,255,255,0.3)] hover:-translate-y-[0.5px] hover:shadow-[0_4px_8px_rgba(59,130,246,0.4),inset_0_1px_0_rgba(255,255,255,0.3)]'
-                                    : 'text-gray-500 hover:text-blue-600 bg-gradient-to-b from-white to-gray-50 dark:from-[#2a2b2f] dark:to-[#1e1f24] dark:text-gray-300 border border-gray-200/80 dark:border-white/10 shadow-[0_1px_2px_rgba(0,0,0,0.05),inset_0_1px_0_rgba(255,255,255,1)] dark:shadow-[0_1px_2px_rgba(0,0,0,0.2),inset_0_1px_0_rgba(255,255,255,0.05)] hover:-translate-y-[0.5px] hover:shadow-[0_2px_4px_rgba(0,0,0,0.06),inset_0_1px_0_rgba(255,255,255,1)] dark:hover:border-white/20'
-                                }`}
+                                    ? t('database_selected', { name: selectedDb.db_name })
+                                    : t('select_database')
+                                }
                               >
-                                <div className='relative'>
-                                  <DatabaseOutlined className={selectedDb ? 'text-white' : ''} />
-                                  {selectedDb && (
-                                    <span className='absolute -top-1.5 -right-1.5 bg-white text-blue-600 text-[8px] rounded-full w-3.5 h-3.5 flex items-center justify-center font-bold shadow-sm ring-1 ring-blue-400/30'>
-                                      1
-                                    </span>
-                                  )}
-                                </div>
-                              </Button>
-                            </Tooltip>
-                          </Popover>
+                                <Button
+                                  type='text'
+                                  shape='circle'
+                                  size='small'
+                                  className={`relative flex items-center justify-center flex-shrink-0 transition-all ${
+                                    selectedDb
+                                      ? 'bg-gradient-to-br from-blue-400 to-blue-600 text-white border border-transparent shadow-[0_2px_4px_rgba(59,130,246,0.3),inset_0_1px_0_rgba(255,255,255,0.3)] hover:-translate-y-[0.5px] hover:shadow-[0_4px_8px_rgba(59,130,246,0.4),inset_0_1px_0_rgba(255,255,255,0.3)]'
+                                      : 'text-gray-500 hover:text-blue-600 bg-gradient-to-b from-white to-gray-50 dark:from-[#2a2b2f] dark:to-[#1e1f24] dark:text-gray-300 border border-gray-200/80 dark:border-white/10 shadow-[0_1px_2px_rgba(0,0,0,0.05),inset_0_1px_0_rgba(255,255,255,1)] dark:shadow-[0_1px_2px_rgba(0,0,0,0.2),inset_0_1px_0_rgba(255,255,255,0.05)] hover:-translate-y-[0.5px] hover:shadow-[0_2px_4px_rgba(0,0,0,0.06),inset_0_1px_0_rgba(255,255,255,1)] dark:hover:border-white/20'
+                                  }`}
+                                >
+                                  <div className='relative'>
+                                    <DatabaseOutlined className={selectedDb ? 'text-white' : ''} />
+                                    {selectedDb && (
+                                      <span className='absolute -top-1.5 -right-1.5 bg-white text-blue-600 text-[8px] rounded-full w-3.5 h-3.5 flex items-center justify-center font-bold shadow-sm ring-1 ring-blue-400/30'>
+                                        1
+                                      </span>
+                                    )}
+                                  </div>
+                                </Button>
+                              </Tooltip>
+                            </Popover>
+                          )}
 
                           {/* Knowledge Base Selector - Orange themed */}
-                          <Popover
-                            trigger='click'
-                            placement='topLeft'
-                            open={isKnowledgePanelOpen}
-                            onOpenChange={setIsKnowledgePanelOpen}
-                            overlayClassName='manus-knowledge-menu'
-                            overlayInnerStyle={{ padding: 0, borderRadius: 12 }}
-                            content={
-                              <div className='w-[320px] bg-white dark:bg-[#2c2d31] rounded-xl shadow-xl overflow-hidden'>
-                                <div className='p-3 border-b border-gray-100 dark:border-gray-700'>
-                                  <Input
-                                    placeholder={t('search_knowledge')}
-                                    prefix={<SearchOutlined className='text-gray-400' />}
-                                    value={knowledgeSearchQuery}
-                                    onChange={e => setKnowledgeSearchQuery(e.target.value)}
-                                    className='rounded-lg'
-                                    allowClear
-                                    size='small'
-                                  />
-                                </div>
-                                <div className='max-h-[300px] overflow-y-auto'>
-                                  {(knowledgeSpaces || [])
-                                    .filter(
+                          {exploreVisibility.knowledgeBaseSelector && (
+                            <Popover
+                              trigger='click'
+                              placement='topLeft'
+                              open={isKnowledgePanelOpen}
+                              onOpenChange={setIsKnowledgePanelOpen}
+                              overlayClassName='manus-knowledge-menu'
+                              overlayInnerStyle={{ padding: 0, borderRadius: 12 }}
+                              content={
+                                <div className='w-[320px] bg-white dark:bg-[#2c2d31] rounded-xl shadow-xl overflow-hidden'>
+                                  <div className='p-3 border-b border-gray-100 dark:border-gray-700'>
+                                    <Input
+                                      placeholder={t('search_knowledge')}
+                                      prefix={<SearchOutlined className='text-gray-400' />}
+                                      value={knowledgeSearchQuery}
+                                      onChange={e => setKnowledgeSearchQuery(e.target.value)}
+                                      className='rounded-lg'
+                                      allowClear
+                                      size='small'
+                                    />
+                                  </div>
+                                  <div className='max-h-[300px] overflow-y-auto'>
+                                    {(knowledgeSpaces || [])
+                                      .filter(
+                                        space =>
+                                          !knowledgeSearchQuery ||
+                                          space.name.toLowerCase().includes(knowledgeSearchQuery.toLowerCase()) ||
+                                          (space.desc &&
+                                            space.desc.toLowerCase().includes(knowledgeSearchQuery.toLowerCase())),
+                                      )
+                                      .map(space => (
+                                        <div
+                                          key={space.id}
+                                          onClick={() => {
+                                            setSelectedKnowledge(space);
+                                            setIsKnowledgePanelOpen(false);
+                                            setKnowledgeSearchQuery('');
+                                          }}
+                                          className={`flex items-start gap-3 px-3 py-2.5 cursor-pointer transition-all hover:bg-gray-50 dark:hover:bg-gray-800 ${
+                                            selectedKnowledge?.id === space.id
+                                              ? 'bg-orange-50 dark:bg-orange-900/20'
+                                              : ''
+                                          }`}
+                                        >
+                                          <div className='flex-shrink-0 w-7 h-7 rounded-lg bg-gradient-to-br from-orange-500 to-red-500 flex items-center justify-center text-white text-xs'>
+                                            <BookOutlined />
+                                          </div>
+                                          <div className='flex-1 min-w-0'>
+                                            <div className='flex items-center gap-2'>
+                                              <span className='font-medium text-sm text-gray-800 dark:text-gray-200'>
+                                                {space.name}
+                                              </span>
+                                            </div>
+                                            {space.desc && (
+                                              <p className='text-xs text-gray-500 dark:text-gray-400 mt-0.5 line-clamp-2'>
+                                                {space.desc}
+                                              </p>
+                                            )}
+                                          </div>
+                                          {selectedKnowledge?.id === space.id && (
+                                            <CheckCircleFilled className='text-orange-500 flex-shrink-0 text-sm' />
+                                          )}
+                                        </div>
+                                      ))}
+                                    {(knowledgeSpaces || []).filter(
                                       space =>
                                         !knowledgeSearchQuery ||
                                         space.name.toLowerCase().includes(knowledgeSearchQuery.toLowerCase()) ||
                                         (space.desc &&
                                           space.desc.toLowerCase().includes(knowledgeSearchQuery.toLowerCase())),
-                                    )
-                                    .map(space => (
-                                      <div
-                                        key={space.id}
-                                        onClick={() => {
-                                          setSelectedKnowledge(space);
-                                          setIsKnowledgePanelOpen(false);
-                                          setKnowledgeSearchQuery('');
-                                        }}
-                                        className={`flex items-start gap-3 px-3 py-2.5 cursor-pointer transition-all hover:bg-gray-50 dark:hover:bg-gray-800 ${
-                                          selectedKnowledge?.id === space.id ? 'bg-orange-50 dark:bg-orange-900/20' : ''
-                                        }`}
-                                      >
-                                        <div className='flex-shrink-0 w-7 h-7 rounded-lg bg-gradient-to-br from-orange-500 to-red-500 flex items-center justify-center text-white text-xs'>
-                                          <BookOutlined />
+                                    ).length === 0 && (
+                                      <div className='text-center py-8 text-gray-400'>
+                                        <BookOutlined className='text-2xl mb-2 opacity-50' />
+                                        <div className='text-xs'>
+                                          {knowledgeSearchQuery
+                                            ? t('picker_knowledge_no_match')
+                                            : t('picker_knowledge_empty')}
                                         </div>
-                                        <div className='flex-1 min-w-0'>
-                                          <div className='flex items-center gap-2'>
-                                            <span className='font-medium text-sm text-gray-800 dark:text-gray-200'>
-                                              {space.name}
-                                            </span>
-                                          </div>
-                                          {space.desc && (
-                                            <p className='text-xs text-gray-500 dark:text-gray-400 mt-0.5 line-clamp-2'>
-                                              {space.desc}
-                                            </p>
-                                          )}
-                                        </div>
-                                        {selectedKnowledge?.id === space.id && (
-                                          <CheckCircleFilled className='text-orange-500 flex-shrink-0 text-sm' />
-                                        )}
                                       </div>
-                                    ))}
-                                  {(knowledgeSpaces || []).filter(
-                                    space =>
-                                      !knowledgeSearchQuery ||
-                                      space.name.toLowerCase().includes(knowledgeSearchQuery.toLowerCase()) ||
-                                      (space.desc &&
-                                        space.desc.toLowerCase().includes(knowledgeSearchQuery.toLowerCase())),
-                                  ).length === 0 && (
-                                    <div className='text-center py-8 text-gray-400'>
-                                      <BookOutlined className='text-2xl mb-2 opacity-50' />
-                                      <div className='text-xs'>
-                                        {knowledgeSearchQuery
-                                          ? t('picker_knowledge_no_match')
-                                          : t('picker_knowledge_empty')}
-                                      </div>
-                                    </div>
-                                  )}
+                                    )}
+                                  </div>
+                                  <div className='border-t border-gray-100 dark:border-gray-700 px-3 py-2 flex items-center justify-between bg-gray-50/50 dark:bg-gray-900/50'>
+                                    <span className='text-[10px] text-gray-400'>
+                                      {t('picker_knowledge_count', { count: (knowledgeSpaces || []).length })}
+                                    </span>
+                                    <Button
+                                      type='link'
+                                      size='small'
+                                      onClick={() => {
+                                        router.push('/construct/knowledge');
+                                        setIsKnowledgePanelOpen(false);
+                                      }}
+                                      className='text-[10px] p-0 h-auto'
+                                    >
+                                      {t('picker_manage_knowledge')}
+                                    </Button>
+                                  </div>
                                 </div>
-                                <div className='border-t border-gray-100 dark:border-gray-700 px-3 py-2 flex items-center justify-between bg-gray-50/50 dark:bg-gray-900/50'>
-                                  <span className='text-[10px] text-gray-400'>
-                                    {t('picker_knowledge_count', { count: (knowledgeSpaces || []).length })}
-                                  </span>
-                                  <Button
-                                    type='link'
-                                    size='small'
-                                    onClick={() => {
-                                      router.push('/construct/knowledge');
-                                      setIsKnowledgePanelOpen(false);
-                                    }}
-                                    className='text-[10px] p-0 h-auto'
-                                  >
-                                    {t('picker_manage_knowledge')}
-                                  </Button>
-                                </div>
-                              </div>
-                            }
-                          >
-                            <Tooltip
-                              title={
-                                selectedKnowledge
-                                  ? t('knowledge_selected', { name: selectedKnowledge.name })
-                                  : t('select_knowledge')
                               }
                             >
-                              <Button
-                                type='text'
-                                shape='circle'
-                                size='small'
-                                className={`relative flex items-center justify-center flex-shrink-0 transition-all ${
+                              <Tooltip
+                                title={
                                   selectedKnowledge
-                                    ? 'bg-gradient-to-br from-orange-400 to-orange-600 text-white border border-transparent shadow-[0_2px_4px_rgba(249,115,22,0.3),inset_0_1px_0_rgba(255,255,255,0.3)] hover:-translate-y-[0.5px] hover:shadow-[0_4px_8px_rgba(249,115,22,0.4),inset_0_1px_0_rgba(255,255,255,0.3)]'
-                                    : 'text-gray-500 hover:text-orange-600 bg-gradient-to-b from-white to-gray-50 dark:from-[#2a2b2f] dark:to-[#1e1f24] dark:text-gray-300 border border-gray-200/80 dark:border-white/10 shadow-[0_1px_2px_rgba(0,0,0,0.05),inset_0_1px_0_rgba(255,255,255,1)] dark:shadow-[0_1px_2px_rgba(0,0,0,0.2),inset_0_1px_0_rgba(255,255,255,0.05)] hover:-translate-y-[0.5px] hover:shadow-[0_2px_4px_rgba(0,0,0,0.06),inset_0_1px_0_rgba(255,255,255,1)] dark:hover:border-white/20'
-                                }`}
+                                    ? t('knowledge_selected', { name: selectedKnowledge.name })
+                                    : t('select_knowledge')
+                                }
                               >
-                                <div className='relative'>
-                                  <BookOutlined className={selectedKnowledge ? 'text-white' : ''} />
-                                  {selectedKnowledge && (
-                                    <span className='absolute -top-1.5 -right-1.5 bg-white text-orange-600 text-[8px] rounded-full w-3.5 h-3.5 flex items-center justify-center font-bold shadow-sm ring-1 ring-orange-400/30'>
-                                      1
-                                    </span>
-                                  )}
-                                </div>
-                              </Button>
-                            </Tooltip>
-                          </Popover>
+                                <Button
+                                  type='text'
+                                  shape='circle'
+                                  size='small'
+                                  className={`relative flex items-center justify-center flex-shrink-0 transition-all ${
+                                    selectedKnowledge
+                                      ? 'bg-gradient-to-br from-orange-400 to-orange-600 text-white border border-transparent shadow-[0_2px_4px_rgba(249,115,22,0.3),inset_0_1px_0_rgba(255,255,255,0.3)] hover:-translate-y-[0.5px] hover:shadow-[0_4px_8px_rgba(249,115,22,0.4),inset_0_1px_0_rgba(255,255,255,0.3)]'
+                                      : 'text-gray-500 hover:text-orange-600 bg-gradient-to-b from-white to-gray-50 dark:from-[#2a2b2f] dark:to-[#1e1f24] dark:text-gray-300 border border-gray-200/80 dark:border-white/10 shadow-[0_1px_2px_rgba(0,0,0,0.05),inset_0_1px_0_rgba(255,255,255,1)] dark:shadow-[0_1px_2px_rgba(0,0,0,0.2),inset_0_1px_0_rgba(255,255,255,0.05)] hover:-translate-y-[0.5px] hover:shadow-[0_2px_4px_rgba(0,0,0,0.06),inset_0_1px_0_rgba(255,255,255,1)] dark:hover:border-white/20'
+                                  }`}
+                                >
+                                  <div className='relative'>
+                                    <BookOutlined className={selectedKnowledge ? 'text-white' : ''} />
+                                    {selectedKnowledge && (
+                                      <span className='absolute -top-1.5 -right-1.5 bg-white text-orange-600 text-[8px] rounded-full w-3.5 h-3.5 flex items-center justify-center font-bold shadow-sm ring-1 ring-orange-400/30'>
+                                        1
+                                      </span>
+                                    )}
+                                  </div>
+                                </Button>
+                              </Tooltip>
+                            </Popover>
+                          )}
 
-                          {/* Separator */}
-                          <div className='w-px h-4 bg-gray-200 dark:bg-gray-700 mx-0.5' />
+                          {exploreVisibility.modelSelector && (
+                            <>
+                              {/* Separator */}
+                              <div className='w-px h-4 bg-gray-200 dark:bg-gray-700 mx-0.5' />
 
-                          {/* Model Selector with premium styling */}
-                          <div className='model-selector-premium'>
-                            <ModelSelector onChange={val => setModel(val)} />
-                          </div>
-                          <style
-                            dangerouslySetInnerHTML={{
-                              __html: `
+                              {/* Model Selector with premium styling */}
+                              <div className='model-selector-premium'>
+                                <ModelSelector onChange={val => setModel(val)} />
+                              </div>
+                              <style
+                                dangerouslySetInnerHTML={{
+                                  __html: `
                                   .model-selector-premium .ant-select { border-radius: 8px !important; border: none !important; }
                                   .model-selector-premium .ant-select-selector { background: linear-gradient(180deg, #ffffff 0%, #f9fafb 100%) !important; border: 1px solid rgba(0,0,0,0.12) !important; box-shadow: 0 1px 2px rgba(0,0,0,0.05), inset 0 1px 0 rgba(255,255,255,1) !important; border-radius: 8px !important; transition: all 0.2s ease !important; padding: 0 8px !important; }
                                   .dark .model-selector-premium .ant-select-selector { background: linear-gradient(180deg, #2a2b2f 0%, #1e1f24 100%) !important; border: 1px solid rgba(255,255,255,0.1) !important; box-shadow: 0 1px 2px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.05) !important; }
@@ -4548,8 +4627,10 @@ const Playground: NextPage = () => {
                                   .dark .ant-select-dropdown .ant-select-item-option-selected { background-color: rgba(255,255,255,0.08) !important; color: #e2e8f0 !important; }
                                   .dark .ant-select-dropdown .ant-select-item-option-active:not(.ant-select-item-option-selected) { background-color: rgba(255,255,255,0.04) !important; }
                                 `,
-                            }}
-                          />
+                                }}
+                              />
+                            </>
+                          )}
                         </div>
 
                         <div className='flex items-center gap-3'>
@@ -4615,51 +4696,53 @@ const Playground: NextPage = () => {
                 </div>
 
                 {/* Recommended Examples */}
-                <div className='mt-10 w-full'>
-                  <div className='flex items-center justify-center gap-2 mb-4'>
-                    <div className='h-px flex-1 bg-gradient-to-r from-transparent to-gray-200 dark:to-gray-700' />
-                    <span className='text-xs font-medium text-gray-400 dark:text-gray-500 tracking-wider uppercase'>
-                      {t('recommend_examples')}
-                    </span>
-                    <div className='h-px flex-1 bg-gradient-to-l from-transparent to-gray-200 dark:to-gray-700' />
-                  </div>
-                  <div className='grid grid-cols-1 sm:grid-cols-2 gap-3'>
-                    {EXAMPLE_CARDS.map(example => (
-                      <div
-                        key={example.id}
-                        onClick={() => handleExampleClick(example)}
-                        className={`group relative bg-gradient-to-br ${example.color} border ${example.borderColor} rounded-2xl p-4 cursor-pointer hover:shadow-lg hover:-translate-y-0.5 transition-all duration-300`}
-                      >
-                        <div className='flex items-start gap-3'>
-                          <div
-                            className={`w-10 h-10 ${example.iconBg} rounded-xl flex items-center justify-center text-xl flex-shrink-0`}
-                          >
-                            {example.icon}
+                {visibleExampleCards.length > 0 && (
+                  <div className='mt-10 w-full'>
+                    <div className='flex items-center justify-center gap-2 mb-4'>
+                      <div className='h-px flex-1 bg-gradient-to-r from-transparent to-gray-200 dark:to-gray-700' />
+                      <span className='text-xs font-medium text-gray-400 dark:text-gray-500 tracking-wider uppercase'>
+                        {t('recommend_examples')}
+                      </span>
+                      <div className='h-px flex-1 bg-gradient-to-l from-transparent to-gray-200 dark:to-gray-700' />
+                    </div>
+                    <div className='grid grid-cols-1 sm:grid-cols-2 gap-3'>
+                      {visibleExampleCards.map(example => (
+                        <div
+                          key={example.id}
+                          onClick={() => handleExampleClick(example)}
+                          className={`group relative bg-gradient-to-br ${example.color} border ${example.borderColor} rounded-2xl p-4 cursor-pointer hover:shadow-lg hover:-translate-y-0.5 transition-all duration-300`}
+                        >
+                          <div className='flex items-start gap-3'>
+                            <div
+                              className={`w-10 h-10 ${example.iconBg} rounded-xl flex items-center justify-center text-xl flex-shrink-0`}
+                            >
+                              {example.icon}
+                            </div>
+                            <div className='flex-1 min-w-0'>
+                              <h3 className='text-sm font-semibold text-gray-800 dark:text-gray-200 mb-1'>
+                                {(() => {
+                                  const key = `example_${example.id}_title`;
+                                  const val = t(key) as string;
+                                  return val && val !== key ? val : example.title;
+                                })()}
+                              </h3>
+                              <p className='text-xs text-gray-500 dark:text-gray-400 line-clamp-2'>
+                                {(() => {
+                                  const key = `example_${example.id}_desc`;
+                                  const val = t(key) as string;
+                                  return val && val !== key ? val : example.description;
+                                })()}
+                              </p>
+                            </div>
                           </div>
-                          <div className='flex-1 min-w-0'>
-                            <h3 className='text-sm font-semibold text-gray-800 dark:text-gray-200 mb-1'>
-                              {(() => {
-                                const key = `example_${example.id}_title`;
-                                const val = t(key) as string;
-                                return val && val !== key ? val : example.title;
-                              })()}
-                            </h3>
-                            <p className='text-xs text-gray-500 dark:text-gray-400 line-clamp-2'>
-                              {(() => {
-                                const key = `example_${example.id}_desc`;
-                                const val = t(key) as string;
-                                return val && val !== key ? val : example.description;
-                              })()}
-                            </p>
+                          <div className='absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity'>
+                            <RightOutlined className='text-xs text-gray-400' />
                           </div>
                         </div>
-                        <div className='absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity'>
-                          <RightOutlined className='text-xs text-gray-400' />
-                        </div>
-                      </div>
-                    ))}
+                      ))}
+                    </div>
                   </div>
-                </div>
+                )}
               </div>
             </div>
           )}

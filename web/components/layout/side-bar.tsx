@@ -1,4 +1,5 @@
 import { ChatContext } from '@/app/chat-context';
+import { useUiVisibility } from '@/app/ui-visibility-context';
 import { delDialogue, getDialogueList } from '@/client/api/request';
 import { apiInterceptors } from '@/client/api/tools/interceptors';
 import { DarkSvg, ModelSvg, SunnySvg } from '@/components/icons';
@@ -63,6 +64,8 @@ function SidebarPictureIcon({
 
 function SideBar() {
   const { isMenuExpand, setIsMenuExpand, mode, setMode } = useContext(ChatContext);
+  const { config: uiVisibility } = useUiVisibility();
+  const { navigation } = uiVisibility;
   const router = useRouter();
   const { pathname } = router;
   const isSettingsActive =
@@ -175,134 +178,159 @@ function SideBar() {
         path: '/construct/knowledge',
       },
     ];
-    return items;
-  }, [t, pathname]);
+    return items.filter(item => {
+      if (item.key === 'explore') return navigation.explore;
+      if (item.key === 'skills') return navigation.skills;
+      if (item.key === 'datasources') return navigation.dataSources;
+      if (item.key === 'knowledge') return navigation.knowledgeBases;
+      return true;
+    });
+  }, [navigation, t, pathname]);
 
   const settingsContent = (
     <div className='w-56 py-1'>
       <div className='px-3 py-2 text-xs font-semibold text-gray-400 uppercase tracking-wider'>{t('management')}</div>
-      <div
-        onClick={() => {
-          router.push('/construct/app');
-          setSettingsOpen(false);
-        }}
-        className={cls(
-          'flex items-center gap-3 px-3 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 cursor-pointer transition-colors',
-          {
-            'bg-blue-50 text-blue-600 dark:bg-blue-900/20 dark:text-blue-400': pathname.startsWith('/construct/app'),
-          },
-        )}
-      >
-        <AppstoreOutlined className='text-blue-500' />
-        <span>{t('app_management')}</span>
-      </div>
-      <div
-        onClick={() => {
-          router.push('/construct/models');
-          setSettingsOpen(false);
-        }}
-        className={cls(
-          'flex items-center gap-3 px-3 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 cursor-pointer transition-colors',
-          {
-            'bg-blue-50 text-blue-600 dark:bg-blue-900/20 dark:text-blue-400': pathname.startsWith('/construct/models'),
-          },
-        )}
-      >
-        <Icon component={ModelSvg} className='text-cyan-500' />
-        <span>{t('model_manage')}</span>
-      </div>
-      <div
-        onClick={() => {
-          router.push('/construct/flow');
-          setSettingsOpen(false);
-        }}
-        className={cls(
-          'flex items-center gap-3 px-3 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 cursor-pointer transition-colors',
-          {
-            'bg-blue-50 text-blue-600 dark:bg-blue-900/20 dark:text-blue-400': pathname.startsWith('/construct/flow'),
-          },
-        )}
-      >
-        <ApartmentOutlined className='text-green-500' />
-        <span>{t('awel_workflow')}</span>
-      </div>
-      <div
-        onClick={() => {
-          router.push('/construct/prompt');
-          setSettingsOpen(false);
-        }}
-        className={cls(
-          'flex items-center gap-3 px-3 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 cursor-pointer transition-colors',
-          {
-            'bg-blue-50 text-blue-600 dark:bg-blue-900/20 dark:text-blue-400': pathname.startsWith('/construct/prompt'),
-          },
-        )}
-      >
-        <EditOutlined className='text-orange-500' />
-        <span>{t('prompts')}</span>
-      </div>
-      <div
-        onClick={() => {
-          router.push('/construct/connectors');
-          setSettingsOpen(false);
-        }}
-        className={cls(
-          'flex items-center gap-3 px-3 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 cursor-pointer transition-colors',
-          {
-            'bg-blue-50 text-blue-600 dark:bg-blue-900/20 dark:text-blue-400':
-              pathname.startsWith('/construct/connectors'),
-          },
-        )}
-      >
-        <ApiOutlined className='text-violet-500' />
-        <span>{t('connectors')}</span>
-      </div>
-      <div
-        onClick={() => {
-          router.push('/construct/scheduled-tasks');
-          setSettingsOpen(false);
-        }}
-        className={cls(
-          'flex items-center gap-3 px-3 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 cursor-pointer transition-colors',
-          {
-            'bg-blue-50 text-blue-600 dark:bg-blue-900/20 dark:text-blue-400':
-              pathname.startsWith('/construct/scheduled-tasks'),
-          },
-        )}
-      >
-        <ClockCircleOutlined className='text-teal-500' />
-        <span>{t('scheduled_tasks')}</span>
-      </div>
-      <div
-        onClick={() => {
-          router.push('/construct/dbgpts');
-          setSettingsOpen(false);
-        }}
-        className={cls(
-          'flex items-center gap-3 px-3 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 cursor-pointer transition-colors',
-          {
-            'bg-blue-50 text-blue-600 dark:bg-blue-900/20 dark:text-blue-400': pathname.startsWith('/construct/dbgpts'),
-          },
-        )}
-      >
-        <GlobalOutlined className='text-purple-500' />
-        <span>{t('dbgpts_community')}</span>
-      </div>
-      <div
-        onClick={() => {
-          router.push('/models_evaluation');
-          setSettingsOpen(false);
-        }}
-        className={cls(
-          'flex items-center gap-3 px-3 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 cursor-pointer transition-colors',
-          {
-            'bg-blue-50 text-blue-600 dark:bg-blue-900/20 dark:text-blue-400': pathname === '/models_evaluation',
-          },
-        )}
-      >
-        <LineChartOutlined className='text-red-500' />
-        <span>{t('models_evaluation')}</span>
-      </div>
+      {navigation.applications && (
+        <div
+          onClick={() => {
+            router.push('/construct/app');
+            setSettingsOpen(false);
+          }}
+          className={cls(
+            'flex items-center gap-3 px-3 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 cursor-pointer transition-colors',
+            {
+              'bg-blue-50 text-blue-600 dark:bg-blue-900/20 dark:text-blue-400': pathname.startsWith('/construct/app'),
+            },
+          )}
+        >
+          <AppstoreOutlined className='text-blue-500' />
+          <span>{t('app_management')}</span>
+        </div>
+      )}
+      {navigation.models && (
+        <div
+          onClick={() => {
+            router.push('/construct/models');
+            setSettingsOpen(false);
+          }}
+          className={cls(
+            'flex items-center gap-3 px-3 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 cursor-pointer transition-colors',
+            {
+              'bg-blue-50 text-blue-600 dark:bg-blue-900/20 dark:text-blue-400':
+                pathname.startsWith('/construct/models'),
+            },
+          )}
+        >
+          <Icon component={ModelSvg} className='text-cyan-500' />
+          <span>{t('model_manage')}</span>
+        </div>
+      )}
+      {navigation.awelWorkflows && (
+        <div
+          onClick={() => {
+            router.push('/construct/flow');
+            setSettingsOpen(false);
+          }}
+          className={cls(
+            'flex items-center gap-3 px-3 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 cursor-pointer transition-colors',
+            {
+              'bg-blue-50 text-blue-600 dark:bg-blue-900/20 dark:text-blue-400': pathname.startsWith('/construct/flow'),
+            },
+          )}
+        >
+          <ApartmentOutlined className='text-green-500' />
+          <span>{t('awel_workflow')}</span>
+        </div>
+      )}
+      {navigation.prompts && (
+        <div
+          onClick={() => {
+            router.push('/construct/prompt');
+            setSettingsOpen(false);
+          }}
+          className={cls(
+            'flex items-center gap-3 px-3 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 cursor-pointer transition-colors',
+            {
+              'bg-blue-50 text-blue-600 dark:bg-blue-900/20 dark:text-blue-400':
+                pathname.startsWith('/construct/prompt'),
+            },
+          )}
+        >
+          <EditOutlined className='text-orange-500' />
+          <span>{t('prompts')}</span>
+        </div>
+      )}
+      {navigation.connectors && (
+        <div
+          onClick={() => {
+            router.push('/construct/connectors');
+            setSettingsOpen(false);
+          }}
+          className={cls(
+            'flex items-center gap-3 px-3 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 cursor-pointer transition-colors',
+            {
+              'bg-blue-50 text-blue-600 dark:bg-blue-900/20 dark:text-blue-400':
+                pathname.startsWith('/construct/connectors'),
+            },
+          )}
+        >
+          <ApiOutlined className='text-violet-500' />
+          <span>{t('connectors')}</span>
+        </div>
+      )}
+      {navigation.scheduledTasks && (
+        <div
+          onClick={() => {
+            router.push('/construct/scheduled-tasks');
+            setSettingsOpen(false);
+          }}
+          className={cls(
+            'flex items-center gap-3 px-3 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 cursor-pointer transition-colors',
+            {
+              'bg-blue-50 text-blue-600 dark:bg-blue-900/20 dark:text-blue-400':
+                pathname.startsWith('/construct/scheduled-tasks'),
+            },
+          )}
+        >
+          <ClockCircleOutlined className='text-teal-500' />
+          <span>{t('scheduled_tasks')}</span>
+        </div>
+      )}
+      {navigation.dbgptsCommunity && (
+        <div
+          onClick={() => {
+            router.push('/construct/dbgpts');
+            setSettingsOpen(false);
+          }}
+          className={cls(
+            'flex items-center gap-3 px-3 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 cursor-pointer transition-colors',
+            {
+              'bg-blue-50 text-blue-600 dark:bg-blue-900/20 dark:text-blue-400':
+                pathname.startsWith('/construct/dbgpts'),
+            },
+          )}
+        >
+          <GlobalOutlined className='text-purple-500' />
+          <span>{t('dbgpts_community')}</span>
+        </div>
+      )}
+      {navigation.modelEvaluation && (
+        <div
+          onClick={() => {
+            router.push('/models_evaluation');
+            setSettingsOpen(false);
+          }}
+          className={cls(
+            'flex items-center gap-3 px-3 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 cursor-pointer transition-colors',
+            {
+              'bg-blue-50 text-blue-600 dark:bg-blue-900/20 dark:text-blue-400': pathname === '/models_evaluation',
+            },
+          )}
+        >
+          <LineChartOutlined className='text-red-500' />
+          <span>{t('models_evaluation')}</span>
+        </div>
+      )}
     </div>
   );
 
@@ -369,7 +397,7 @@ function SideBar() {
               arrow={false}
               overlayInnerStyle={{ padding: 0, borderRadius: 12, overflow: 'hidden' }}
             >
-              <Tooltip title={t('construct')} placement='right'>
+              <Tooltip title={t('management')} placement='right'>
                 <div className={smallMenuItemStyle(isSettingsActive)}>
                   <SidebarPictureIcon
                     src='/pictures/app.png'
@@ -401,13 +429,7 @@ function SideBar() {
       <div className='flex items-center justify-between p-2 pb-4'>
         <Link href='/' className='flex min-w-0 items-center gap-2'>
           <span className='flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-white'>
-            <Image
-              src={logo}
-              alt='华工·筑视 智检助手'
-              width={36}
-              height={27}
-              className='h-auto w-8 object-contain'
-            />
+            <Image src={logo} alt='华工·筑视 智检助手' width={36} height={27} className='h-auto w-8 object-contain' />
           </span>
           <span className='whitespace-nowrap text-xs font-semibold text-gray-800 dark:text-gray-100'>
             华工·筑视 智检助手
@@ -479,7 +501,7 @@ function SideBar() {
                 alt='construct_icon'
               />
             </div>
-            <span className='text-sm'>{t('construct')}</span>
+            <span className='text-sm'>{t('management')}</span>
           </div>
         </Popover>
       </div>

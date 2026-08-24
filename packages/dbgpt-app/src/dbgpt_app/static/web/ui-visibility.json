@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "navigation": {
+    "explore": true,
+    "skills": false,
+    "dataSources": true,
+    "knowledgeBases": true,
+    "applications": false,
+    "models": true,
+    "awelWorkflows": false,
+    "prompts": false,
+    "connectors": false,
+    "scheduledTasks": true,
+    "dbgptsCommunity": false,
+    "modelEvaluation": false
+  },
+  "explore": {
+    "fileUpload": true,
+    "dataSourceSelector": true,
+    "knowledgeBaseSelector": true,
+    "modelSelector": true,
+    "skillSelector": false,
+    "connectorSelector": false,
+    "recommendedExampleIds": ["db_profile_report"]
+  }
+}

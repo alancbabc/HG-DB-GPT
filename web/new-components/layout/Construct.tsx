@@ -1,3 +1,4 @@
+import { useUiVisibility } from '@/app/ui-visibility-context';
 import { ModelSvg } from '@/components/icons';
 import Icon, {
   ApiOutlined,
@@ -15,12 +16,15 @@ import React from 'react';
 import './style.css';
 
 function ConstructLayout({ children, className }: { children: React.ReactNode; className?: string }) {
+  const { config: uiVisibility } = useUiVisibility();
+  const { navigation } = uiVisibility;
   const items = [
     {
       key: 'app',
       name: t('App'),
       path: '/app',
       icon: <AppstoreOutlined />,
+      visible: navigation.applications,
       // operations: (
       //   <Button
       //     className='border-none text-white bg-button-gradient h-full flex items-center'
@@ -36,24 +40,28 @@ function ConstructLayout({ children, className }: { children: React.ReactNode; c
       name: t('awel_flow'),
       icon: <ForkOutlined />,
       path: '/flow',
+      visible: navigation.awelWorkflows,
     },
     {
       key: 'models',
       name: t('model_manage'),
       path: '/models',
       icon: <Icon component={ModelSvg} />,
+      visible: navigation.models,
     },
     {
       key: 'database',
       name: t('Database'),
       icon: <ConsoleSqlOutlined />,
       path: '/database',
+      visible: navigation.dataSources,
     },
     {
       key: 'knowledge',
       name: t('Knowledge_Space'),
       icon: <PartitionOutlined />,
       path: '/knowledge',
+      visible: navigation.knowledgeBases,
     },
     // {
     //   key: 'agent',
@@ -66,18 +74,21 @@ function ConstructLayout({ children, className }: { children: React.ReactNode; c
       name: t('skills') || '技能',
       path: '/skills',
       icon: <ThunderboltOutlined />,
+      visible: navigation.skills,
     },
     {
       key: 'connectors',
       name: t('connectors'),
       icon: <ApiOutlined />,
       path: '/connectors',
+      visible: navigation.connectors,
     },
     {
       key: 'scheduled-tasks',
       name: t('scheduled_tasks'),
       icon: <ClockCircleOutlined />,
       path: '/scheduled-tasks',
+      visible: navigation.scheduledTasks,
     },
     // {
     //   key: 'prompt',
@@ -91,10 +102,19 @@ function ConstructLayout({ children, className }: { children: React.ReactNode; c
     //   path: '/dbgpts',
     //   icon: <BuildOutlined />,
     // },
-  ];
+  ].filter(item => item.visible);
   const router = useRouter();
   const activeKey = router.pathname.split('/')[2];
+  const isActiveTabVisible = items.some(item => item.key === activeKey);
   // const isDarkMode = window.matchMedia('(prefers-color-scheme: dark)').matches; // unused
+
+  if (!isActiveTabVisible) {
+    return (
+      <div className='flex flex-col h-full w-full dark:bg-gradient-dark bg-gradient-light bg-cover bg-center'>
+        {children}
+      </div>
+    );
+  }
 
   return (
     <div className='flex flex-col h-full w-full  dark:bg-gradient-dark bg-gradient-light bg-cover bg-center'>
