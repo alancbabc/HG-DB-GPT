@@ -2,7 +2,7 @@
 
 ## 当前状态
 
-本阶段已提供只监听本机的生产配置模板和不访问互联网的Ollama健康检查工具。Python离线介质已包含并真实安装验证 `ollama` 客户端；当前开发机仍没有Ollama服务和真实模型，因此不能将真实LLM与Embedding标记为已验收。
+本阶段已提供只监听本机的生产配置模板和不访问互联网的Ollama健康检查工具。Python离线介质已包含并真实安装验证 `ollama` 客户端；三个固定模型已在RTX 5090开发机完成真实下载、LLM生成和Embedding调用验收，详细结果见阶段14文档。
 
 已确认后续真实模型为：主 LLM `qwen3.5:27b-q4_K_M`、备用 LLM `qwen3.5:9b-q4_K_M`、Embedding `qwen3-embedding:0.6b`。三个标签已在Ollama官方模型库确认存在；当前页面标示的介质规模约为17 GB、6.6 GB和639 MB。先在 RTX 5090 干净断网测试机完成安装和功能验证，最终在 RTX 3090 24 GB 产线机复测显存与响应时间。
 
@@ -29,7 +29,8 @@ Web和Ollama API均使用回环地址。模板没有云模型fallback，也不�
 .venv\Scripts\python.exe scripts\windows\check_ollama_offline.py `
   --llm-model qwen3.5:27b-q4_K_M `
   --fallback-llm-model qwen3.5:9b-q4_K_M `
-  --embedding-model qwen3-embedding:0.6b
+  --embedding-model qwen3-embedding:0.6b `
+  --expected-version 0.32.15
 ```
 
 工具只允许访问HTTP回环地址，并依次验证：
@@ -48,4 +49,4 @@ Web和Ollama API均使用回环地址。模板没有云模型fallback，也不�
 .venv\Scripts\ruff.exe check scripts\windows\check_ollama_offline.py tests\deployment\test_ollama_offline_check.py
 ```
 
-模拟测试通过后，本阶段仍保留以下目标机验收项：离线导入已确认的27B、9B量化LLM和0.6B Embedding、运行本工具、验证中文SQL生成、工具调用、知识库检索、定时任务、显存和失败恢复。模型介质和3090目标机到位前不能关闭这些验收项。
+开发机真实接口和模拟测试通过后，仍保留以下目标机验收项：在完全断网的干净Windows测试机导入同一模型仓库，验证中文SQL生成、工具调用、知识库检索、定时任务和失败恢复；最终在RTX 3090 24GB产线机复测显存、冷启动和响应时间。完成这些验收前不能判断模型链路已达到产线交付条件。

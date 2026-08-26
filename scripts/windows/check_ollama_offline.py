@@ -42,12 +42,42 @@ def _require_loopback(base_url: str) -> None:
         raise ValueError("Ollama URL must use a loopback address in production")
 
 
+def _response_metrics(response: Dict[str, Any]) -> Dict[str, Any]:
+    """Return compact timing/token diagnostics from an Ollama response."""
+    metrics: Dict[str, Any] = {}
+    for source, target in (
+        ("total_duration", "totalSeconds"),
+        ("load_duration", "loadSeconds"),
+        ("prompt_eval_duration", "promptEvalSeconds"),
+        ("eval_duration", "evalSeconds"),
+    ):
+        value = response.get(source)
+        if isinstance(value, (int, float)):
+            metrics[target] = round(value / 1_000_000_000, 3)
+    for source, target in (
+        ("prompt_eval_count", "promptTokens"),
+        ("eval_count", "generatedTokens"),
+    ):
+        value = response.get(source)
+        if isinstance(value, int):
+            metrics[target] = value
+    eval_count = response.get("eval_count")
+    eval_duration = response.get("eval_duration")
+    if isinstance(eval_count, int) and isinstance(eval_duration, (int, float)):
+        if eval_duration > 0:
+            metrics["tokensPerSecond"] = round(
+                eval_count * 1_000_000_000 / eval_duration, 2
+            )
+    return metrics
+
+
 def check_ollama(
     base_url: str,
     llm_model: str,
     embedding_model: str,
     timeout: float,
     fallback_llm_model: str | None = None,
+    expected_version: str | None = None,
 ) -> Dict[str, Any]:
     _require_loopback(base_url)
     checks: Dict[str, bool] = {}
@@ -56,6 +86,8 @@ def check_ollama(
         version = _request_json(base_url, "/api/version", timeout)
         details["version"] = version.get("version")
         checks["serviceReachable"] = True
+        if expected_version:
+            checks["versionMatches"] = version.get("version") == expected_version
 
         tags = _request_json(base_url, "/api/tags", timeout)
         installed = sorted(
@@ -84,6 +116,7 @@ def check_ollama(
             },
         )
         checks["generationWorks"] = bool(generation.get("response"))
+        details["mainGeneration"] = _response_metrics(generation)
 
         if fallback_llm_model:
             fallback_generation = _request_json(
@@ -100,6 +133,7 @@ def check_ollama(
             checks["fallbackGenerationWorks"] = bool(
                 fallback_generation.get("response")
             )
+            details["fallbackGeneration"] = _response_metrics(fallback_generation)
 
         embedding = _request_json(
             base_url,
@@ -114,6 +148,7 @@ def check_ollama(
         vectors = embedding.get("embeddings") or []
         checks["embeddingWorks"] = bool(vectors and vectors[0])
         details["embeddingDimensions"] = len(vectors[0]) if vectors else 0
+        details["embedding"] = _response_metrics(embedding)
     except (OSError, urllib.error.URLError, json.JSONDecodeError) as err:
         details["error"] = f"{type(err).__name__}: {err}"
         checks.setdefault("serviceReachable", False)
@@ -124,6 +159,7 @@ def check_ollama(
         "llmModel": llm_model,
         "fallbackLlmModel": fallback_llm_model,
         "embeddingModel": embedding_model,
+        "expectedVersion": expected_version,
         "checks": checks,
         "details": details,
     }
@@ -135,6 +171,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--llm-model", required=True)
     parser.add_argument("--fallback-llm-model")
     parser.add_argument("--embedding-model", required=True)
+    parser.add_argument("--expected-version")
     parser.add_argument("--timeout-seconds", type=float, default=120)
     args = parser.parse_args()
     if args.timeout_seconds <= 0:
@@ -151,6 +188,7 @@ def main() -> int:
             args.embedding_model,
             args.timeout_seconds,
             args.fallback_llm_model,
+            args.expected_version,
         )
     except ValueError as err:
         print(json.dumps({"success": False, "error": str(err)}, ensure_ascii=False))

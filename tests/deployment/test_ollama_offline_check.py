@@ -43,10 +43,24 @@ class _OllamaStub(BaseHTTPRequestHandler):
             "fallback-llm",
         ):
             assert payload["keep_alive"] == 0
-            self._send({"response": "健康"})
+            self._send(
+                {
+                    "response": "健康",
+                    "total_duration": 2_000_000_000,
+                    "load_duration": 1_000_000_000,
+                    "eval_count": 10,
+                    "eval_duration": 500_000_000,
+                }
+            )
         elif self.path == "/api/embed" and payload["model"] == "local-embed":
             assert payload["keep_alive"] == 0
-            self._send({"embeddings": [[0.1, 0.2, 0.3]]})
+            self._send(
+                {
+                    "embeddings": [[0.1, 0.2, 0.3]],
+                    "total_duration": 1_000_000_000,
+                    "load_duration": 800_000_000,
+                }
+            )
         else:
             self.send_error(400)
 
@@ -70,6 +84,8 @@ def test_check_ollama_validates_generation_and_embedding(ollama_stub):
     assert report["success"] is True
     assert all(report["checks"].values())
     assert report["details"]["embeddingDimensions"] == 3
+    assert report["details"]["mainGeneration"]["tokensPerSecond"] == 20.0
+    assert report["details"]["embedding"]["loadSeconds"] == 0.8
 
 
 def test_check_ollama_reports_missing_model(ollama_stub):
@@ -96,3 +112,25 @@ def test_check_ollama_validates_fallback_generation(ollama_stub):
 def test_check_ollama_rejects_non_loopback_url():
     with pytest.raises(ValueError, match="loopback"):
         check_ollama("http://192.0.2.1:11434", "llm", "embed", 1)
+
+
+def test_check_ollama_can_enforce_runtime_version(ollama_stub):
+    matching = check_ollama(
+        ollama_stub,
+        "local-llm",
+        "local-embed",
+        2,
+        expected_version="test",
+    )
+    assert matching["success"] is True
+    assert matching["checks"]["versionMatches"] is True
+
+    mismatching = check_ollama(
+        ollama_stub,
+        "local-llm",
+        "local-embed",
+        2,
+        expected_version="other",
+    )
+    assert mismatching["success"] is False
+    assert mismatching["checks"]["versionMatches"] is False
