@@ -895,11 +895,12 @@ class TestMaterializeLocalFile:
             # registry never picks the system temp dir on its own).
             assert resolved_root in path.resolve().parents
             assert path.read_bytes() == payload
-            assert stat.S_IMODE(os.lstat(path).st_mode) == 0o600
             run_dir = path.parent
             assert run_dir.name.startswith("run_")
-            mode = stat.S_IMODE(os.lstat(run_dir).st_mode)
-            assert mode & 0o777 == 0o700
+            if os.name != "nt":
+                assert stat.S_IMODE(os.lstat(path).st_mode) == 0o600
+                mode = stat.S_IMODE(os.lstat(run_dir).st_mode)
+                assert mode & 0o777 == 0o700
         assert not run_dir.exists(), "run directory must be cleaned up"
         assert strict.max_read_size <= registry.config.upload_chunk_bytes
 
@@ -942,7 +943,12 @@ class TestMaterializeLocalFile:
         outside.mkdir()
         owner_dir = registry.work_root / OWNER
         registry.work_root.mkdir(parents=True, exist_ok=True)
-        os.symlink(outside, owner_dir)
+        try:
+            os.symlink(outside, owner_dir)
+        except OSError as error:
+            if os.name == "nt" and getattr(error, "winerror", None) == 1314:
+                pytest.skip("Windows account does not have symbolic-link privilege")
+            raise
 
         with pytest.raises(SessionFileRegistryError) as excinfo:
             with registry.materialize_local_file(
@@ -986,7 +992,12 @@ class TestMaterializeLocalFile:
         run_dir = tmp_path / "work" / "run"
         run_dir.mkdir(parents=True)
         evil_target = tmp_path / "evil_target.txt"
-        os.symlink(evil_target, run_dir / f"f_{'ab' * 8}.txt")
+        try:
+            os.symlink(evil_target, run_dir / f"f_{'ab' * 8}.txt")
+        except OSError as error:
+            if os.name == "nt" and getattr(error, "winerror", None) == 1314:
+                pytest.skip("Windows account does not have symbolic-link privilege")
+            raise
 
         with pytest.raises(SessionFileRegistryError) as excinfo:
             registry._write_stream_secure(run_dir, ".txt", _stream(b"payload"))

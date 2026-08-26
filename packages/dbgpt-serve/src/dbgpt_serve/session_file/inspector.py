@@ -2,6 +2,7 @@
 
 import asyncio
 import csv
+import errno
 import importlib
 import io
 import json
@@ -648,6 +649,12 @@ def _pid_exists(pid: int) -> bool:
         os.kill(pid, 0)
     except ProcessLookupError:
         return False
+    except OSError as error:
+        # Windows reports an already-exited PID as ERROR_INVALID_PARAMETER
+        # instead of raising ProcessLookupError.
+        if error.errno == errno.ESRCH or getattr(error, "winerror", None) == 87:
+            return False
+        raise
     return True
 
 

@@ -3,6 +3,7 @@
 import asyncio
 import json
 import multiprocessing
+import os
 import pickle
 import threading
 import time
@@ -496,7 +497,12 @@ def test_symlink_inputs_are_rejected_safely(tmp_path):
     real = tmp_path / "real.txt"
     real.write_text("safe")
     link = tmp_path / "link.txt"
-    link.symlink_to(real)
+    try:
+        link.symlink_to(real)
+    except OSError as error:
+        if os.name == "nt" and getattr(error, "winerror", None) == 1314:
+            pytest.skip("Windows account does not have symbolic-link privilege")
+        raise
 
     result = SessionFileInspector().inspect(link)
 
