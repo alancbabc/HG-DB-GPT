@@ -202,3 +202,30 @@ def test_read_only_parameter_round_trip_and_default_compatibility(tmp_path):
             read_only.run("DROP TABLE production_data")
     finally:
         read_only.close()
+
+
+def test_query_ex_limits_rows_before_fetching_all(db):
+    db.run("CREATE TABLE test (id INTEGER PRIMARY KEY);")
+    for value in range(10):
+        db.run(f"INSERT INTO test(id) VALUES ({value})")
+
+    fields, rows = db.query_ex("SELECT id FROM test ORDER BY id", max_rows=3)
+
+    assert fields == ["id"]
+    assert rows == [(0,), (1,), (2,)]
+
+
+def test_sqlite_query_timeout_interrupts_execution(db):
+    expensive_query = """
+        WITH RECURSIVE counter(value) AS (
+            SELECT 1
+            UNION ALL
+            SELECT value + 1 FROM counter WHERE value < 100000000
+        )
+        SELECT sum(value) FROM counter
+    """
+
+    with pytest.raises(TimeoutError, match="exceeded timeout"):
+        db.query_ex(expensive_query, timeout=0.001)
+
+    assert db.query_ex("SELECT 1", timeout=1, fetch="one")[1] == [(1,)]

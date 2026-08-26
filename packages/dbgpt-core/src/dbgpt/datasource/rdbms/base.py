@@ -2,6 +2,7 @@
 
 import logging
 import re
+import time
 import weakref
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FutureTimeoutError
@@ -484,6 +485,7 @@ class RDBMSConnector(BaseConnector):
         params: Optional[Dict[str, Any]] = None,
         fetch: str = "all",
         timeout: Optional[float] = None,
+        max_rows: Optional[int] = None,
     ) -> Tuple[List[str], Optional[List]]:
         """Execute a SQL command and return the results with optional timeout.
 
@@ -495,6 +497,8 @@ class RDBMSConnector(BaseConnector):
             fetch (str): fetch type, either 'all' or 'one'
             timeout (Optional[float]): Query timeout in seconds. If None, no timeout is
                 applied.
+            max_rows (Optional[int]): Maximum rows fetched from the driver. One extra
+                row can be requested by callers that need to detect truncation.
 
         Returns:
             Tuple[List[str], Optional[List]]: (field_names, results)
@@ -506,6 +510,8 @@ class RDBMSConnector(BaseConnector):
         logger.info(f"Query[{query}] with timeout={timeout}s")
         if not query:
             return [], None
+        if max_rows is not None and max_rows <= 0:
+            raise ValueError("max_rows must be greater than zero")
         query = self._format_sql(query)
 
         # Initialize params if None
@@ -516,7 +522,11 @@ class RDBMSConnector(BaseConnector):
             cursor = session.execute(sql_text, query_params)
             if cursor.returns_rows:
                 if fetch == "all":
-                    result = cursor.fetchall()
+                    result = (
+                        cursor.fetchmany(max_rows)
+                        if max_rows is not None
+                        else cursor.fetchall()
+                    )
                 elif fetch == "one":
                     result = cursor.fetchone()
                     if result:
@@ -530,6 +540,8 @@ class RDBMSConnector(BaseConnector):
             return [], None
 
         with self.session_scope() as session:
+            sqlite_connection = None
+            sqlite_timed_out = False
             try:
                 sql = text(query)
 
@@ -576,6 +588,24 @@ class RDBMSConnector(BaseConnector):
                                     f"Query exceeded timeout of {timeout} seconds"
                                 )
 
+                    elif self.dialect == "sqlite":
+                        deadline = time.monotonic() + timeout
+                        sqlite_connection = (
+                            session.connection().connection.driver_connection
+                        )
+
+                        def _cancel_after_deadline():
+                            nonlocal sqlite_timed_out
+                            if time.monotonic() >= deadline:
+                                sqlite_timed_out = True
+                                return 1
+                            return 0
+
+                        sqlite_connection.set_progress_handler(
+                            _cancel_after_deadline, 1_000
+                        )
+                        return _execute_query(session, sql, params)
+
                     else:
                         logger.warning(
                             f"Timeout not supported for dialect: {self.dialect}, "
@@ -587,12 +617,18 @@ class RDBMSConnector(BaseConnector):
                 return _execute_query(session, sql, params)
 
             except SQLAlchemyError as e:
+                if self.dialect == "sqlite" and sqlite_timed_out:
+                    raise TimeoutError(
+                        f"Query exceeded timeout of {timeout} seconds"
+                    ) from e
                 if "timeout" in str(e).lower() or "timed out" in str(e).lower():
                     raise TimeoutError(f"Query exceeded timeout of {timeout} seconds")
                 raise
             except TimeoutError:
                 raise
             finally:
+                if sqlite_connection is not None:
+                    sqlite_connection.set_progress_handler(None, 0)
                 # Reset timeout settings if they were modified
                 if timeout is not None:
                     try:

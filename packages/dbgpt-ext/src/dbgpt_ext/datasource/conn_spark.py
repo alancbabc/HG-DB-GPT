@@ -2,7 +2,7 @@
 
 import logging
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Optional, Type
+from typing import TYPE_CHECKING, Any, Dict, Optional, Type
 
 from dbgpt.core.awel.flow import (
     TAGS_ORDER_HIGH,
@@ -133,11 +133,32 @@ class SparkConnector(BaseConnector):
             rows.append(row)
         return rows
 
-    def query_ex(self, sql: str, timeout: Optional[float] = None):
-        """Execute sql command."""
-        rows = self.run(sql)
-        field_names = rows[0]
-        return field_names, rows
+    def query_ex(
+        self,
+        sql: str,
+        params: Optional[Dict[str, Any]] = None,
+        fetch: str = "all",
+        timeout: Optional[float] = None,
+        max_rows: Optional[int] = None,
+    ):
+        """Execute SQL with the common bounded query interface."""
+        del timeout
+        if params:
+            raise ValueError("Spark connector does not support query parameters")
+        if max_rows is not None and max_rows <= 0:
+            raise ValueError("max_rows must be greater than zero")
+
+        self.df.createOrReplaceTempView(self.table_name)
+        result_df = self.spark_session.sql(sql)
+        if max_rows is not None:
+            result_df = result_df.limit(max_rows)
+        if fetch == "all":
+            result = result_df.collect()
+        elif fetch == "one":
+            result = result_df.take(1)
+        else:
+            raise ValueError("Fetch parameter must be either 'one' or 'all'")
+        return list(result_df.columns), [tuple(row) for row in result]
 
     def get_indexes(self, table_name):
         """Get table indexes about specified table."""
