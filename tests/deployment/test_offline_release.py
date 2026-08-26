@@ -41,6 +41,12 @@ def test_build_verify_and_detect_tampering(tmp_path):
     report = verify_release(output)
     assert report["success"] is True
     assert report["fileCount"] > 6
+    for script in (
+        "Backup-DBGPTData.ps1",
+        "Restore-DBGPTData.ps1",
+        "runtime_data.py",
+    ):
+        assert (output / "scripts" / script).is_file()
 
     powershell = subprocess.run(
         [

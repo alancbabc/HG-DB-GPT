@@ -19,6 +19,9 @@ REQUIRED_REPOSITORY_FILES = (
     "scripts/windows/Test-OfflineRelease.ps1",
     "scripts/windows/Install-DBGPTOffline.ps1",
     "scripts/windows/Register-DBGPTServices.ps1",
+    "scripts/windows/runtime_data.py",
+    "scripts/windows/Backup-DBGPTData.ps1",
+    "scripts/windows/Restore-DBGPTData.ps1",
 )
 
 
