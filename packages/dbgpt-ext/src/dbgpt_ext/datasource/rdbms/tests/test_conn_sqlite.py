@@ -6,8 +6,12 @@ import os
 import tempfile
 
 import pytest
+from sqlalchemy.exc import OperationalError
 
-from dbgpt_ext.datasource.rdbms.conn_sqlite import SQLiteConnector
+from dbgpt_ext.datasource.rdbms.conn_sqlite import (
+    SQLiteConnector,
+    SQLiteConnectorParameters,
+)
 
 
 @pytest.fixture
@@ -144,3 +148,57 @@ def test_db_dir_exist_dir():
             assert list(db.get_table_names()) == []
         finally:
             db.close()
+
+
+def test_read_only_connector_can_query_but_cannot_write(tmp_path):
+    file_path = tmp_path / "production.db"
+    writable = SQLiteConnector.from_file_path(str(file_path))
+    try:
+        writable.run("CREATE TABLE production_data (id INTEGER PRIMARY KEY);")
+        writable.run("INSERT INTO production_data(id) VALUES (1)")
+    finally:
+        writable.close()
+
+    read_only = SQLiteConnector.from_file_path(str(file_path), read_only=True)
+    try:
+        fields, rows = read_only.query_ex("SELECT id FROM production_data")
+        assert fields == ["id"]
+        assert rows == [(1,)]
+        assert read_only.query_ex("PRAGMA query_only", fetch="one")[1] == [(1,)]
+        with pytest.raises(OperationalError, match="readonly"):
+            read_only.run("INSERT INTO production_data(id) VALUES (2)")
+    finally:
+        read_only.close()
+
+
+def test_read_only_connector_does_not_create_missing_path(tmp_path):
+    file_path = tmp_path / "missing" / "production.db"
+
+    with pytest.raises(FileNotFoundError, match="does not exist or is not a file"):
+        SQLiteConnector.from_file_path(str(file_path), read_only=True)
+
+    assert not file_path.exists()
+    assert not file_path.parent.exists()
+
+
+def test_read_only_parameter_round_trip_and_default_compatibility(tmp_path):
+    file_path = tmp_path / "production.db"
+    writable_params = SQLiteConnectorParameters(path=str(file_path))
+    assert writable_params.read_only is False
+
+    writable = writable_params.create_connector()
+    try:
+        writable.run("CREATE TABLE production_data (id INTEGER PRIMARY KEY);")
+    finally:
+        writable.close()
+
+    params = SQLiteConnectorParameters(path=str(file_path), read_only=True)
+    restored = SQLiteConnectorParameters.from_persisted_state(params.persisted_state())
+    assert restored.read_only is True
+
+    read_only = restored.create_connector()
+    try:
+        with pytest.raises(OperationalError, match="readonly"):
+            read_only.run("DROP TABLE production_data")
+    finally:
+        read_only.close()

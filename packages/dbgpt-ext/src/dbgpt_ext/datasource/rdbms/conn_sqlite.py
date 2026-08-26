@@ -4,9 +4,11 @@ import dataclasses
 import logging
 import os
 import tempfile
+from pathlib import Path
 from typing import Any, Iterable, List, Optional, Tuple, Type
 
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, event, text
+from sqlalchemy.engine import URL, Engine
 
 from dbgpt.core.awel.flow import (
     TAGS_ORDER_HIGH,
@@ -57,6 +59,16 @@ class SQLiteConnectorParameters(BaseDatasourceParameters):
         },
     )
 
+    read_only: bool = dataclasses.field(
+        default=False,
+        metadata={
+            "help": _(
+                "Open an existing SQLite database in read-only mode. The database "
+                "file and parent directory will never be created."
+            )
+        },
+    )
+
     driver: str = dataclasses.field(
         default="sqlite", metadata={"help": _("Driver name, default is sqlite")}
     )
@@ -66,6 +78,8 @@ class SQLiteConnectorParameters(BaseDatasourceParameters):
         return SQLiteConnector.from_parameters(self)
 
     def db_url(self, ssl: bool = False, charset: Optional[str] = None):
+        if self.read_only:
+            return str(SQLiteConnector._read_only_url(self.path))
         return f"{self.driver}:///{self.path}"
 
 
@@ -85,23 +99,84 @@ class SQLiteConnector(RDBMSConnector):
         cls, parameters: SQLiteConnectorParameters
     ) -> "SQLiteConnector":
         """Create a new SQLiteConnector from parameters."""
-        _engine_args = {
-            "connect_args": {"check_same_thread": parameters.check_same_thread}
-        }
-        return cls(create_engine(f"sqlite:///{parameters.path}", **_engine_args))
+        engine = cls._create_engine(
+            parameters.path,
+            check_same_thread=parameters.check_same_thread,
+            read_only=parameters.read_only,
+        )
+        return cls(engine)
 
     @classmethod
     def from_file_path(
-        cls, file_path: str, engine_args: Optional[dict] = None, **kwargs: Any
+        cls,
+        file_path: str,
+        engine_args: Optional[dict] = None,
+        read_only: bool = False,
+        **kwargs: Any,
     ) -> "SQLiteConnector":
         """Create a new SQLiteConnector from file path."""
-        _engine_args = engine_args or {}
-        _engine_args["connect_args"] = {"check_same_thread": False}
-        # _engine_args["echo"] = True
-        directory = os.path.dirname(file_path)
-        if not os.path.exists(directory):
-            os.makedirs(directory)
-        return cls(create_engine("sqlite:///" + file_path, **_engine_args), **kwargs)
+        engine = cls._create_engine(
+            file_path,
+            check_same_thread=False,
+            read_only=read_only,
+            engine_args=engine_args,
+        )
+        return cls(engine, **kwargs)
+
+    @staticmethod
+    def _read_only_url(file_path: str) -> URL:
+        """Build a SQLite URI that requests an OS-level read-only open."""
+        path = Path(file_path).expanduser().resolve()
+        return URL.create(
+            "sqlite",
+            database=f"file:{path.as_posix()}",
+            query={"mode": "ro", "uri": "true"},
+        )
+
+    @classmethod
+    def _create_engine(
+        cls,
+        file_path: str,
+        check_same_thread: bool,
+        read_only: bool,
+        engine_args: Optional[dict] = None,
+    ) -> Engine:
+        """Create a writable-compatible or explicitly read-only SQLite engine."""
+        if not file_path:
+            raise ValueError("SQLite database path cannot be empty")
+
+        resolved_path = Path(file_path).expanduser().resolve()
+        if read_only:
+            if not resolved_path.is_file():
+                raise FileNotFoundError(
+                    f"Read-only SQLite database does not exist or is not a file: "
+                    f"{resolved_path}"
+                )
+            url = cls._read_only_url(str(resolved_path))
+        else:
+            directory = os.path.dirname(file_path)
+            if directory and not os.path.exists(directory):
+                os.makedirs(directory)
+            url = f"sqlite:///{file_path}"
+
+        args = dict(engine_args or {})
+        connect_args = dict(args.get("connect_args") or {})
+        connect_args["check_same_thread"] = check_same_thread
+        args["connect_args"] = connect_args
+        engine = create_engine(url, **args)
+        if read_only:
+            event.listen(engine, "connect", cls._enable_query_only)
+        return engine
+
+    @staticmethod
+    def _enable_query_only(dbapi_connection, connection_record) -> None:
+        """Enable SQLite query-only mode for every pooled DB-API connection."""
+        del connection_record
+        cursor = dbapi_connection.cursor()
+        try:
+            cursor.execute("PRAGMA query_only=ON")
+        finally:
+            cursor.close()
 
     def get_indexes(self, table_name):
         """Get table indexes about specified table."""

@@ -296,7 +296,27 @@ class ConnectorManager(BaseComponent):
         connect_instance = self.get_cls_by_dbtype(db_type.value())
         if db_type.is_file_db():
             db_path = db_config.get("db_path")
-            return connect_instance.from_file_path(db_path)  # type: ignore
+            file_connector_kwargs = {}
+            if db_type.value() == "sqlite":
+                ext_config = db_config.get("ext_config")
+                if isinstance(ext_config, str):
+                    try:
+                        ext_config = json.loads(ext_config) if ext_config else {}
+                    except json.JSONDecodeError as err:
+                        raise ValueError(
+                            "Invalid SQLite datasource ext_config JSON"
+                        ) from err
+                if ext_config is None:
+                    ext_config = {}
+                if not isinstance(ext_config, dict):
+                    raise ValueError("SQLite datasource ext_config must be an object")
+                read_only = ext_config.get("read_only", False)
+                if not isinstance(read_only, bool):
+                    raise ValueError("SQLite read_only must be a boolean")
+                file_connector_kwargs["read_only"] = read_only
+            return connect_instance.from_file_path(  # type: ignore
+                db_path, **file_connector_kwargs
+            )
         elif db_type.value() == "oracle":
             logger.info("-------------Oracle Datasource------------")
             host = db_config.get("db_host")
