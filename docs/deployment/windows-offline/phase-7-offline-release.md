@@ -68,6 +68,17 @@ powershell -ExecutionPolicy Bypass -File `
 
 不得把模型、机器密钥、生产数据库和目标机路径提交Git。
 
+应用 wheels 和完整 wheelhouse 使用阶段11的介质生成器准备，并在组包前执行一次
+全新虚拟环境 `--no-index` 安装验收：
+
+```powershell
+python scripts\windows\offline_media.py prepare --output D:\Inputs\dbgpt-python-media
+powershell -ExecutionPolicy Bypass -File `
+  scripts\windows\Test-OfflinePythonMedia.ps1 `
+  -MediaRoot D:\Inputs\dbgpt-python-media `
+  -PythonExe C:\Python311\python.exe
+```
+
 ## 自动化验收
 
 ```powershell

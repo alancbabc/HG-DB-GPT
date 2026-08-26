@@ -19,6 +19,7 @@ REQUIRED_REPOSITORY_FILES = (
     "scripts/windows/sqlite_concurrency_probe.py",
     "scripts/windows/sqlite_live_read_probe.py",
     "scripts/windows/Test-OfflineRelease.ps1",
+    "scripts/windows/Test-OfflinePythonMedia.ps1",
     "scripts/windows/Install-DBGPTOffline.ps1",
     "scripts/windows/Register-DBGPTServices.ps1",
     "scripts/windows/runtime_data.py",

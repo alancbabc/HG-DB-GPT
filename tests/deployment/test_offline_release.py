@@ -53,6 +53,7 @@ def test_build_verify_and_detect_tampering(tmp_path):
     for script in (
         "Backup-DBGPTData.ps1",
         "Restore-DBGPTData.ps1",
+        "Test-OfflinePythonMedia.ps1",
         "runtime_data.py",
         "sqlite_live_read_probe.py",
     ):
