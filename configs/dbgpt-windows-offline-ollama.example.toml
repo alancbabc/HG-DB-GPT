@@ -1,0 +1,30 @@
+[system]
+language = "${env:DBGPT_LANG:-zh}"
+api_keys = []
+encrypt_key = "${env:DBGPT_ENCRYPT_KEY}"
+
+[service.web]
+host = "127.0.0.1"
+port = 5670
+
+[service.web.database]
+type = "sqlite"
+path = "${env:DBGPT_DATA_DIR}/metadata/dbgpt.db"
+
+[rag.storage]
+[rag.storage.vector]
+type = "chroma"
+persist_path = "${env:DBGPT_DATA_DIR}/vector_store"
+
+[models]
+[[models.llms]]
+name = "${env:DBGPT_LLM_MODEL}"
+provider = "proxy/ollama"
+api_base = "http://127.0.0.1:11434"
+api_key = ""
+
+[[models.embeddings]]
+name = "${env:DBGPT_EMBEDDING_MODEL}"
+provider = "proxy/ollama"
+api_url = "http://127.0.0.1:11434"
+api_key = ""
