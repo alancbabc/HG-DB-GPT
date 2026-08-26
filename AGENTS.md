@@ -67,6 +67,7 @@
 - 已确认主 LLM 为 `qwen3.5:27b-q4_K_M`，备用 LLM 为 `qwen3.5:9b-q4_K_M`，Embedding 为 `qwen3-embedding:0.6b`。干净断网测试机使用 RTX 5090，最终产线性能在 RTX 3090 24 GB 上复测。
 - 模型介质使用Ollama原生 `manifests` 与 `blobs` 仓库，发布前用 `ollama_model_store.py` 校验三个固定标签、blob存在性和大小，不对大模型重复计算哈希。产线Ollama设置 `OLLAMA_NO_CLOUD=1`，默认单模型、单路推理和8192上下文，只有3090实测通过后才能提高并发或上下文。
 - 三个固定模型已在RTX 5090开发机完成真实下载与生成/Embedding接口验收；该结果只证明介质和调用链可用，不能替代RTX 3090产线机的显存、延迟和稳定性验收。
+- 第一份26.86GB完整候选离线发布目录已在准备机完成清单校验和两轮 `--no-index` Python安装自检；发布物不进入Git，仍需在干净Windows测试机完成物理断网全新安装后才能升级结论。
 
 ## 生产 SQLite 只读与并发原则
 
