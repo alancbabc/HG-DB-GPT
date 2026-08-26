@@ -4,6 +4,8 @@
 
 本阶段已提供只监听本机的生产配置模板和不访问互联网的Ollama健康检查工具。当前开发机没有Ollama可执行程序、Python `ollama` 包或运行在11434端口的服务，因此只能通过本地模拟服务完成接口自动化测试，不能将真实LLM与Embedding标记为已验收。
 
+已确认后续真实模型为：主 LLM `qwen3.5:27b-q4_K_M`、备用 LLM `qwen3.5:9b-q4_K_M`、Embedding `qwen3-embedding:0.6b`。先在 RTX 5090 干净断网测试机完成安装和功能验证，最终在 RTX 3090 24 GB 产线机复测显存与响应时间。
+
 ## 配置模板
 
 `configs/dbgpt-windows-offline-ollama.example.toml`要求安装时提供：

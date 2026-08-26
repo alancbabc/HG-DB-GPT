@@ -1,10 +1,10 @@
 """Create, verify, and restore non-destructive DB-GPT runtime-data backups."""
 
 import argparse
-import hashlib
 import json
 import os
 import shutil
+import sqlite3
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -35,14 +35,6 @@ def _files(root: Path, excludes: Set[str] | None = None) -> Iterable[Path]:
             yield path
 
 
-def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
 def backup(source: Path, destination: Path) -> Dict[str, object]:
     source = _safe_directory(source, must_exist=True)
     destination = _safe_directory(destination, must_exist=False)
@@ -67,11 +59,10 @@ def backup(source: Path, destination: Path) -> Dict[str, object]:
                 {
                     "path": relative.as_posix(),
                     "size": target.stat().st_size,
-                    "sha256": _sha256(target),
                 }
             )
         manifest = {
-            "schemaVersion": 1,
+            "schemaVersion": 2,
             "createdAt": datetime.now(timezone.utc).isoformat(),
             "sourceName": source.name,
             "excludedTopLevelDirectories": sorted(DEFAULT_EXCLUDES),
@@ -87,6 +78,24 @@ def backup(source: Path, destination: Path) -> Dict[str, object]:
         raise
 
 
+def _quick_check_metadata(data_root: Path) -> tuple[str, list[str]]:
+    metadata = data_root / "metadata" / "dbgpt.db"
+    if not metadata.is_file():
+        return "not_present", []
+    uri = f"file:{metadata.resolve().as_posix()}?mode=ro"
+    try:
+        connection = sqlite3.connect(uri, uri=True)
+        try:
+            results = [row[0] for row in connection.execute("PRAGMA quick_check")]
+        finally:
+            connection.close()
+    except sqlite3.DatabaseError as error:
+        return "failed", [f"SQLite quick_check failed: {error}"]
+    if results != ["ok"]:
+        return "failed", [f"SQLite quick_check failed: {results}"]
+    return "ok", []
+
+
 def verify(backup_root: Path) -> Dict[str, object]:
     backup_root = _safe_directory(backup_root, must_exist=True)
     manifest_path = backup_root / MANIFEST_NAME
@@ -100,7 +109,7 @@ def verify(backup_root: Path) -> Dict[str, object]:
     if not data_root.is_dir():
         return {"success": False, "errors": ["Missing backup data directory"]}
     entries = manifest.get("files")
-    if manifest.get("schemaVersion") != 1 or not isinstance(entries, list):
+    if manifest.get("schemaVersion") not in (1, 2) or not isinstance(entries, list):
         return {"success": False, "errors": ["Unsupported backup manifest schema"]}
     try:
         expected = {entry["path"]: entry for entry in entries}
@@ -122,9 +131,14 @@ def verify(backup_root: Path) -> Dict[str, object]:
         entry = expected[relative]
         if path.stat().st_size != entry["size"]:
             errors.append(f"Size mismatch: {relative}")
-        elif _sha256(path) != entry["sha256"]:
-            errors.append(f"SHA-256 mismatch: {relative}")
-    return {"success": not errors, "fileCount": len(expected), "errors": errors}
+    quick_check, sqlite_errors = _quick_check_metadata(data_root)
+    errors.extend(sqlite_errors)
+    return {
+        "success": not errors,
+        "fileCount": len(expected),
+        "sqliteQuickCheck": quick_check,
+        "errors": errors,
+    }
 
 
 def restore(backup_root: Path, destination: Path) -> Dict[str, object]:

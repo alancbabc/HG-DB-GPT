@@ -13,6 +13,7 @@ from typing import Dict, Iterable, List
 MANIFEST_NAME = "release-manifest.json"
 REQUIRED_REPOSITORY_FILES = (
     "configs/dbgpt-windows-offline-ollama.example.toml",
+    "scripts/windows/check_installed_runtime.py",
     "scripts/windows/check_ollama_offline.py",
     "scripts/windows/collect-deployment-baseline.ps1",
     "scripts/windows/sqlite_concurrency_probe.py",
@@ -25,6 +26,13 @@ REQUIRED_REPOSITORY_FILES = (
     "scripts/windows/Restore-DBGPTData.ps1",
 )
 
+HASHED_FILES = {
+    "runtime/python-installer.exe",
+    "tools/nssm.exe",
+    "ollama/ollama.exe",
+}
+HASHED_PREFIXES = ("app-wheels/", "config/", "scripts/")
+
 
 def _files(root: Path) -> Iterable[Path]:
     return sorted(path for path in root.rglob("*") if path.is_file())
@@ -36,6 +44,11 @@ def _sha256(path: Path) -> str:
         for chunk in iter(lambda: stream.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _should_hash(relative: str) -> bool:
+    """Return whether a release file needs content-level verification."""
+    return relative in HASHED_FILES or relative.startswith(HASHED_PREFIXES)
 
 
 def _copy_tree(source: Path, destination: Path) -> None:
@@ -58,6 +71,11 @@ def _validate_inputs(args: argparse.Namespace) -> None:
             raise ValueError(f"Required directory does not exist: {path}")
     if not list(args.wheelhouse.glob("*.whl")):
         raise ValueError("wheelhouse must contain at least one .whl file")
+    if not any(
+        path.name.lower().startswith("ollama-")
+        for path in args.wheelhouse.glob("*.whl")
+    ):
+        raise ValueError("wheelhouse must contain the ollama Python wheel")
     if not list(args.app_wheels.glob("*.whl")):
         raise ValueError("app-wheels must contain DB-GPT wheel files")
     if not (args.ollama_dir / "ollama.exe").is_file():
@@ -101,11 +119,15 @@ def build_release(args: argparse.Namespace) -> Path:
         entries: List[Dict[str, object]] = []
         for path in _files(staging):
             relative = path.relative_to(staging).as_posix()
-            entries.append(
-                {"path": relative, "size": path.stat().st_size, "sha256": _sha256(path)}
-            )
+            entry: Dict[str, object] = {
+                "path": relative,
+                "size": path.stat().st_size,
+            }
+            if _should_hash(relative):
+                entry["sha256"] = _sha256(path)
+            entries.append(entry)
         manifest = {
-            "schemaVersion": 1,
+            "schemaVersion": 2,
             "releaseVersion": args.release_version,
             "createdAt": datetime.now(timezone.utc).isoformat(),
             "target": "windows-x86_64-offline",
@@ -131,23 +153,25 @@ def verify_release(root: Path) -> Dict[str, object]:
     except (OSError, json.JSONDecodeError) as error:
         return {"success": False, "errors": [f"Invalid manifest: {error}"]}
 
-    expected = {entry["path"]: entry for entry in manifest.get("files", [])}
-    actual = {
-        path.relative_to(root).as_posix(): path
-        for path in _files(root)
-        if path.name != MANIFEST_NAME
-    }
+    if manifest.get("schemaVersion") not in (1, 2):
+        return {"success": False, "errors": ["Unsupported release manifest schema"]}
+    try:
+        expected = {entry["path"]: entry for entry in manifest.get("files", [])}
+    except (KeyError, TypeError):
+        return {"success": False, "errors": ["Invalid release manifest entries"]}
     errors = []
-    for missing in sorted(set(expected) - set(actual)):
-        errors.append(f"Missing file: {missing}")
-    for unexpected in sorted(set(actual) - set(expected)):
-        errors.append(f"Unexpected file: {unexpected}")
-    for relative in sorted(set(expected) & set(actual)):
-        path = actual[relative]
+    for relative, entry in sorted(expected.items()):
+        path = (root / relative).resolve()
+        if root != path and root not in path.parents:
+            errors.append(f"Invalid manifest path: {relative}")
+            continue
+        if not path.is_file():
+            errors.append(f"Missing file: {relative}")
+            continue
         entry = expected[relative]
         if path.stat().st_size != entry["size"]:
             errors.append(f"Size mismatch: {relative}")
-        elif _sha256(path) != entry["sha256"]:
+        elif entry.get("sha256") and _sha256(path) != entry["sha256"]:
             errors.append(f"SHA-256 mismatch: {relative}")
     return {
         "success": not errors,

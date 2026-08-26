@@ -51,9 +51,14 @@ $python = Join-Path $pythonRoot "python.exe"
 $wheelhouse = Join-Path $release "wheelhouse"
 $appWheels = Get-ChildItem -LiteralPath (Join-Path $release "app-wheels") `
     -Filter "*.whl" -File | Select-Object -ExpandProperty FullName
-& $python -m pip install --no-index --find-links $wheelhouse @appWheels
+& $python -m pip install --no-index --find-links $wheelhouse @appWheels ollama
 if ($LASTEXITCODE -ne 0) {
     throw "Offline Python dependency installation failed"
+}
+$runtimeCheck = Join-Path $release "scripts\check_installed_runtime.py"
+& $python $runtimeCheck
+if ($LASTEXITCODE -ne 0) {
+    throw "Installed DB-GPT runtime self-check failed"
 }
 
 Copy-Item -LiteralPath (Join-Path $release "ollama") `

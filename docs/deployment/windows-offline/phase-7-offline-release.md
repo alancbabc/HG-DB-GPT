@@ -16,14 +16,14 @@
   --nssm-exe D:\Inputs\nssm.exe
 ```
 
-输出包含逐文件大小和SHA-256的 `release-manifest.json`。在目标机安装前用Windows自带PowerShell验证：
+输出的 `release-manifest.json` 记录全部文件路径和大小，只对安装器、应用 wheels、配置、脚本、Python、NSSM和Ollama入口程序等关键文件记录SHA-256。模型和wheelhouse不做重复内容哈希；其完整性由文件大小、安装/导入结果及后续运行时自检验证。在目标机安装前用Windows自带PowerShell执行一次必要校验：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\Test-OfflineRelease.ps1 `
   -ReleaseRoot D:\Releases\dbgpt-offline-0.8.1
 ```
 
-缺失、篡改或额外文件都会导致非零退出码。
+关键文件缺失、大小变化或关键文件内容校验失败会导致非零退出码。运维人员附加的说明文件不会被当作发布包损坏。
 
 校验成功后，在管理员PowerShell中执行离线安装。安装器拒绝覆盖已有程序目录，升级必须使用阶段8的备份和回滚流程：
 
@@ -35,7 +35,7 @@ powershell -ExecutionPolicy Bypass -File scripts\Install-DBGPTOffline.ps1 `
   -ModelRoot "D:\HGTech\OllamaModels"
 ```
 
-安装器先复核哈希，然后静默安装固定Python，使用 `--no-index` 从wheelhouse安装应用，复制Ollama、模型、配置和运维脚本。它不自动注册服务，也不接触生产数据库。
+安装器先执行必要发布校验，然后静默安装固定Python，使用 `--no-index` 从wheelhouse显式安装应用和 `ollama` Python包，并运行不联网的模块、CLI及静态Web自检。自检通过后复制Ollama、模型、配置和运维脚本。它不自动注册服务，也不接触生产数据库。
 
 ## 服务化边界
 
@@ -61,7 +61,7 @@ powershell -ExecutionPolicy Bypass -File `
 ## 仍需准备的真实介质
 
 - 固定版本的Python Windows x64安装程序和必要VC运行库；
-- 使用锁文件在联网构建机下载的完整Windows x64 wheelhouse，其中必须包含 `proxy_ollama`；
+- 使用锁文件在联网构建机下载的完整Windows x64 wheelhouse，其中必须包含 `proxy_ollama`及可被安装器识别的 `ollama-*.whl`；
 - 当前提交对应的全部DB-GPT wheels和预构建静态Web资源；
 - Ollama独立Windows程序、NSSM和已校验模型文件；
 - 目标模型的本地注册/导入说明。

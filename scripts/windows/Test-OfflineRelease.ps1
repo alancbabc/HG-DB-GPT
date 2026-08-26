@@ -30,10 +30,11 @@ if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
 }
 
 $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+if ($manifest.schemaVersion -notin @(1, 2)) {
+    throw "Unsupported release manifest schema: $($manifest.schemaVersion)"
+}
 $errors = [System.Collections.Generic.List[string]]::new()
-$expected = @{}
 foreach ($entry in $manifest.files) {
-    $expected[$entry.path] = $entry
     $path = Join-Path $root ($entry.path -replace "/", "\")
     if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
         $errors.Add("Missing file: $($entry.path)")
@@ -44,16 +45,11 @@ foreach ($entry in $manifest.files) {
         $errors.Add("Size mismatch: $($entry.path)")
         continue
     }
-    $hash = Get-Sha256Hex -Path $path
-    if ($hash -ne $entry.sha256) {
-        $errors.Add("SHA-256 mismatch: $($entry.path)")
-    }
-}
-
-Get-ChildItem -LiteralPath $root -Recurse -File | ForEach-Object {
-    $relative = $_.FullName.Substring($root.Length).TrimStart([char]92).Replace([char]92, [char]47)
-    if ($relative -ne "release-manifest.json" -and -not $expected.ContainsKey($relative)) {
-        $errors.Add("Unexpected file: $relative")
+    if ($null -ne $entry.sha256 -and -not [string]::IsNullOrWhiteSpace($entry.sha256)) {
+        $hash = Get-Sha256Hex -Path $path
+        if ($hash -ne $entry.sha256) {
+            $errors.Add("SHA-256 mismatch: $($entry.path)")
+        }
     }
 }
 
