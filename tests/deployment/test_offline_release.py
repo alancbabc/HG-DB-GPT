@@ -45,6 +45,7 @@ def test_build_verify_and_detect_tampering(tmp_path):
         "Backup-DBGPTData.ps1",
         "Restore-DBGPTData.ps1",
         "runtime_data.py",
+        "sqlite_live_read_probe.py",
     ):
         assert (output / "scripts" / script).is_file()
 

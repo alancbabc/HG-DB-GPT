@@ -4,7 +4,7 @@
 
 仓库新增一个安全的合成并发探针：它始终创建一次性数据库，用Python标准库 `sqlite3` 写线程模拟外部C++事务，并使用项目的显式只读连接执行并发查询。探针不会接受现有数据库路径，避免误写生产数据。
 
-本机短测只验证工具、只读连接、锁处理和指标采集链路。它不能替代目标电脑上使用真实10 GB数据库与真实C++进程进行的24/72小时联合验收。
+本机短测只验证工具、只读连接、锁处理和指标采集链路。最终联合验收使用 `universal_agent` 的模拟宿主程序持续写入五粮液数据库，DB-GPT 对同一文件执行显式只读查询。数据库不再要求必须达到10 GB，报告必须记录实际大小。
 
 ## 本机短时验收
 
@@ -20,19 +20,20 @@
 
 ## 目标环境联合验收
 
-先用合成10 GB数据库进行24小时测试：
+合成数据库探针继续作为快速回归工具，但不是最终的真实宿主验收依据。真实宿主短测命令如下：
 
 ```powershell
-.venv\Scripts\python.exe scripts\windows\sqlite_concurrency_probe.py `
-  --work-dir D:\DBGPTValidation `
-  --database-size-mb 10240 `
-  --duration-seconds 86400 `
-  --write-interval-seconds 30 `
-  --readers 1 `
-  --query-timeout-seconds 30
+.venv\Scripts\python.exe scripts\windows\sqlite_live_read_probe.py `
+  --database "..\universal_agent\database\runtime_vi_agent.db" `
+  --progress-table batch `
+  --duration-seconds 120 `
+  --query-interval-seconds 1 `
+  --query-timeout-seconds 5
 ```
 
-然后启动真实C++软件和DB-GPT，使用实际生产数据库做只读联合测试。真实测试不得由探针写入生产库，需要分别采集C++写入日志、DB-GPT查询日志、数据库和WAL大小、CPU、内存、磁盘队列及错误记录。
+运行探针前，在 `universal_agent` 模拟宿主选择“五粮液瓶盖”并点击“开始模拟写入”。探针只使用 DB-GPT 的 `mode=ro` 和 `query_only=ON` 连接，不写数据库；写入完全来自 C++ 模拟宿主。报告记录 `batch` 增量、查询延迟、查询错误、数据库完整性、只读拒写和WAL峰值。
+
+短测通过后，在目标电脑使用相同组合执行24小时测试，投产前建议再执行72小时测试，并分别采集模拟宿主日志、DB-GPT查询报告、数据库和WAL大小、CPU、内存、磁盘队列及错误记录。
 
 正式验收要求：
 
@@ -47,5 +48,6 @@
 
 ```powershell
 .venv\Scripts\python.exe -m pytest tests\deployment\test_sqlite_concurrency_probe.py -q
-.venv\Scripts\ruff.exe check scripts\windows\sqlite_concurrency_probe.py tests\deployment\test_sqlite_concurrency_probe.py
+.venv\Scripts\python.exe -m pytest tests\deployment\test_sqlite_live_read_probe.py -q
+.venv\Scripts\ruff.exe check scripts\windows\sqlite_concurrency_probe.py scripts\windows\sqlite_live_read_probe.py tests\deployment\test_sqlite_concurrency_probe.py tests\deployment\test_sqlite_live_read_probe.py
 ```

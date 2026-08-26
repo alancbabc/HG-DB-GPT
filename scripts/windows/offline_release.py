@@ -16,6 +16,7 @@ REQUIRED_REPOSITORY_FILES = (
     "scripts/windows/check_ollama_offline.py",
     "scripts/windows/collect-deployment-baseline.ps1",
     "scripts/windows/sqlite_concurrency_probe.py",
+    "scripts/windows/sqlite_live_read_probe.py",
     "scripts/windows/Test-OfflineRelease.ps1",
     "scripts/windows/Install-DBGPTOffline.ps1",
     "scripts/windows/Register-DBGPTServices.ps1",
