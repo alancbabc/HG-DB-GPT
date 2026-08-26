@@ -26,15 +26,19 @@ REQUIRED_REPOSITORY_FILES = (
     "scripts/windows/sqlite_live_read_probe.py",
     "scripts/windows/Test-OfflineRelease.ps1",
     "scripts/windows/Test-OfflinePythonMedia.ps1",
+    "scripts/windows/Prepare-WindowsRuntimeMedia.ps1",
     "scripts/windows/Install-DBGPTOffline.ps1",
     "scripts/windows/Register-DBGPTServices.ps1",
     "scripts/windows/runtime_data.py",
     "scripts/windows/Backup-DBGPTData.ps1",
     "scripts/windows/Restore-DBGPTData.ps1",
+    "scripts/windows/runtime_media.py",
+    "scripts/windows/runtime-media.lock.json",
 )
 
 HASHED_FILES = {
     "runtime/python-installer.exe",
+    "runtime/vc-redist.x64.exe",
     "tools/nssm.exe",
     "ollama/ollama.exe",
 }
@@ -65,7 +69,7 @@ def _copy_tree(source: Path, destination: Path) -> None:
 
 
 def _validate_inputs(args: argparse.Namespace) -> None:
-    for path in (args.python_installer, args.nssm_exe):
+    for path in (args.python_installer, args.vc_redist, args.nssm_exe):
         if not path.is_file():
             raise ValueError(f"Required file does not exist: {path}")
     for path in (
@@ -109,6 +113,7 @@ def build_release(args: argparse.Namespace) -> Path:
         shutil.copy2(
             args.python_installer, staging / "runtime" / "python-installer.exe"
         )
+        shutil.copy2(args.vc_redist, staging / "runtime" / "vc-redist.x64.exe")
         shutil.copy2(args.nssm_exe, staging / "tools" / "nssm.exe")
         _copy_tree(args.wheelhouse, staging / "wheelhouse")
         _copy_tree(args.app_wheels, staging / "app-wheels")
@@ -196,6 +201,7 @@ def _parse_args() -> argparse.Namespace:
     build.add_argument("--output", type=Path, required=True)
     build.add_argument("--release-version", required=True)
     build.add_argument("--python-installer", type=Path, required=True)
+    build.add_argument("--vc-redist", type=Path, required=True)
     build.add_argument("--wheelhouse", type=Path, required=True)
     build.add_argument("--app-wheels", type=Path, required=True)
     build.add_argument("--ollama-dir", type=Path, required=True)

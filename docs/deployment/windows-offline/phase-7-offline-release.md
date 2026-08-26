@@ -9,6 +9,7 @@
   --output D:\Releases\dbgpt-offline-0.8.1 `
   --release-version 0.8.1-prod1 `
   --python-installer D:\Inputs\python-installer.exe `
+  --vc-redist D:\Inputs\vc-redist.x64.exe `
   --wheelhouse D:\Inputs\wheelhouse `
   --app-wheels D:\Inputs\app-wheels `
   --ollama-dir D:\Inputs\ollama `

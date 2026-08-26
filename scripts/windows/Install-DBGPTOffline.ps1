@@ -31,6 +31,13 @@ if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administra
 
 New-Item -ItemType Directory -Path $InstallRoot | Out-Null
 New-Item -ItemType Directory -Force -Path $DataRoot, $ModelRoot | Out-Null
+$vcRedist = Join-Path $release "runtime\vc-redist.x64.exe"
+$vcProcess = Start-Process -FilePath $vcRedist `
+    -ArgumentList @("/install", "/quiet", "/norestart") `
+    -WindowStyle Hidden -Wait -PassThru
+if ($vcProcess.ExitCode -notin @(0, 1638, 3010)) {
+    throw "Visual C++ Redistributable failed with exit code $($vcProcess.ExitCode)"
+}
 $pythonRoot = Join-Path $InstallRoot "python"
 $pythonInstaller = Join-Path $release "runtime\python-installer.exe"
 $arguments = @(

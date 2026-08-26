@@ -42,6 +42,7 @@ def _model_store(root: Path) -> None:
 def test_build_verify_and_detect_tampering(tmp_path):
     inputs = tmp_path / "inputs"
     python_installer = _file(inputs / "python.exe")
+    vc_redist = _file(inputs / "vc-redist.exe")
     nssm = _file(inputs / "nssm.exe")
     wheelhouse = inputs / "wheelhouse"
     app_wheels = inputs / "app-wheels"
@@ -57,6 +58,7 @@ def test_build_verify_and_detect_tampering(tmp_path):
         output=output,
         release_version="test-1",
         python_installer=python_installer,
+        vc_redist=vc_redist,
         wheelhouse=wheelhouse,
         app_wheels=app_wheels,
         ollama_dir=ollama,
@@ -75,11 +77,15 @@ def test_build_verify_and_detect_tampering(tmp_path):
     assert "sha256" not in entries["models/blobs/sha256-test"]
     assert "sha256" not in entries["wheelhouse/dependency-1.0-py3-none-any.whl"]
     assert "sha256" in entries["scripts/Install-DBGPTOffline.ps1"]
+    assert "sha256" in entries["runtime/vc-redist.x64.exe"]
     for script in (
         "Backup-DBGPTData.ps1",
         "Restore-DBGPTData.ps1",
         "Test-OfflinePythonMedia.ps1",
+        "Prepare-WindowsRuntimeMedia.ps1",
         "ollama_model_store.py",
+        "runtime_media.py",
+        "runtime-media.lock.json",
         "runtime_data.py",
         "sqlite_live_read_probe.py",
     ):
@@ -155,6 +161,7 @@ def test_build_requires_ollama_python_wheel(tmp_path):
         output=tmp_path / "release",
         release_version="test-1",
         python_installer=_file(inputs / "python.exe"),
+        vc_redist=_file(inputs / "vc-redist.exe"),
         wheelhouse=inputs / "wheelhouse",
         app_wheels=inputs / "app-wheels",
         ollama_dir=inputs / "ollama",
@@ -175,3 +182,5 @@ def test_installer_explicitly_installs_ollama_and_runs_runtime_check():
 
     assert "@appWheels ollama" in installer
     assert "check_installed_runtime.py" in installer
+    assert "vc-redist.x64.exe" in installer
+    assert '"/install", "/quiet", "/norestart"' in installer

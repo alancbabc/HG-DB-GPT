@@ -51,6 +51,7 @@
 - 默认仅供本机浏览器使用时，Web 和 Ollama 应监听回环地址。若需要局域网访问，必须单独设计认证、授权、TLS、防火墙和访问审计。
 - DB-GPT 和 Ollama 应以 Windows 服务或等价的受控后台方式运行，具备开机启动、失败恢复、受控停止、日志轮转和健康检查。
 - 所有发布物应固定版本。哈希只用于发布包关键安装文件在制作和移动介质复制后的必要校验，不反复哈希模型、wheelhouse、日志、缓存和普通备份文件；升级前备份 DB-GPT 元数据库、向量数据、任务数据和用户文件，并验证回滚。
+- Windows第三方运行时已固定为Python 3.11.9 x64、Ollama 0.32.15、NSSM 2.24-101-g897c7ad和Microsoft Visual C++ x64 14.50.35719.0；版本更新必须先重新完成真实介质与断网验收。
 - Python离线介质使用 `scripts/windows/offline_media.py` 从当前工作区和 `uv.lock` 生成；组包前必须通过 `Test-OfflinePythonMedia.ps1` 的全新临时环境 `--no-index` 安装、`pip check` 和运行时自检。目标机不得接收sdist或现场编译依赖。
 
 ## 本地模型与 Embedding 原则

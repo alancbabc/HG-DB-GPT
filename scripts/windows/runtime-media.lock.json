@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "target": "windows-x86_64",
+  "artifacts": [
+    {
+      "id": "python",
+      "version": "3.11.9",
+      "fileName": "python-3.11.9-amd64.exe",
+      "url": "https://www.python.org/ftp/python/3.11.9/python-3.11.9-amd64.exe",
+      "size": 26216840,
+      "sha256": "5ee42c4eee1e6b4464bb23722f90b45303f79442df63083f05322f1785f5fdde"
+    },
+    {
+      "id": "ollama",
+      "version": "0.32.15",
+      "fileName": "ollama-windows-amd64-v0.32.15.zip",
+      "url": "https://github.com/ollama/ollama/releases/download/v0.32.15/ollama-windows-amd64.zip",
+      "size": 1460302386,
+      "sha256": "a1d11d46a944f9c7521f5e9a3a5db51cd3365401da627d96c204698fc6914ff9"
+    },
+    {
+      "id": "nssm",
+      "version": "2.24-101-g897c7ad",
+      "fileName": "nssm-2.24-101-g897c7ad.zip",
+      "url": "https://nssm.cc/ci/nssm-2.24-101-g897c7ad.zip",
+      "size": 415458,
+      "sha256": "99f5045fffbffb745d67fe3a065a953c4a3d9c253b868892d9b685b0ee7d07b8",
+      "publishedSha1": "ca2f6782a05af85facf9b620e047b01271edd11d"
+    },
+    {
+      "id": "vcRedist",
+      "version": "14.50.35719.0",
+      "fileName": "VC_redist.x64-14.50.35719.exe",
+      "url": "https://aka.ms/vs/18/release/14.50.35719/VC_redist.x64.exe",
+      "size": 18558944,
+      "sha256": "8995548dfffcde7c49987029c764355612ba6850ee09a7b6f0fddc85bdc5c280"
+    }
+  ]
+}
