@@ -147,7 +147,7 @@ function SideBar() {
     const items: RouteItem[] = [
       {
         key: 'explore',
-        name: t('explore'),
+        name: t('explore_nav'),
         isActive: pathname === '/',
         iconSrc: '/pictures/explore.png',
         activeIconSrc: '/pictures/explore_active.png',
@@ -411,7 +411,7 @@ function SideBar() {
           </div>
         </div>
         <div className='py-4'>
-          <UserBar onlyAvatar />
+          {uiVisibility.sidebar.userProfile && <UserBar onlyAvatar />}
           <Tooltip title={t(isMenuExpand ? 'Close_Sidebar' : 'Show_Sidebar')} placement='right'>
             <div className={smallMenuItemStyle()} onClick={handleToggleMenu}>
               <MenuUnfoldOutlined />
@@ -446,12 +446,14 @@ function SideBar() {
       </div>
 
       {/* New Task Button */}
-      <Link href='/'>
-        <div className='flex items-center justify-center gap-2 px-4 py-2.5 mb-4 bg-black dark:bg-white dark:text-black text-white rounded-xl text-sm font-medium hover:opacity-90 transition-opacity cursor-pointer'>
-          <PlusOutlined className='text-xs' />
-          <span>{t('new_task')}</span>
-        </div>
-      </Link>
+      {uiVisibility.sidebar.newTask && (
+        <Link href='/'>
+          <div className='flex items-center justify-center gap-2 px-4 py-2.5 mb-4 bg-black dark:bg-white dark:text-black text-white rounded-xl text-sm font-medium hover:opacity-90 transition-opacity cursor-pointer'>
+            <PlusOutlined className='text-xs' />
+            <span>{t('new_task')}</span>
+          </div>
+        </Link>
+      )}
 
       {/* Functions */}
       <div className='flex flex-col gap-1'>
@@ -562,11 +564,13 @@ function SideBar() {
 
       {/* Bottom: UserBar + toggles */}
       <div className='pt-4 pb-2'>
-        <span className={cls('flex items-center w-full h-12 px-4 bg-[#F1F5F9] dark:bg-theme-dark rounded-xl')}>
-          <div className='mr-3 w-full'>
-            <UserBar />
-          </div>
-        </span>
+        {uiVisibility.sidebar.userProfile && (
+          <span className={cls('flex items-center w-full h-12 px-4 bg-[#F1F5F9] dark:bg-theme-dark rounded-xl')}>
+            <div className='mr-3 w-full'>
+              <UserBar />
+            </div>
+          </span>
+        )}
         <div className='flex items-center justify-around py-4 mt-2 border-t border-dashed border-gray-200 dark:border-gray-700'>
           <Popover content={mode === 'dark' ? 'Light' : 'Dark'}>
             <div className='flex-1 flex items-center justify-center cursor-pointer text-xl' onClick={handleToggleTheme}>

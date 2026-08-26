@@ -22,7 +22,8 @@
     "test": "npm run test:react-final && npm run test:final-presentation && npm run test:ui-visibility",
     "test:react-final": "tsc --target ES2020 --module commonjs --moduleResolution node --esModuleInterop --skipLibCheck --strict --outDir node_modules/.cache/react-final-tests utils/react-agent-final.ts utils/react-agent-final.test.ts && node node_modules/.cache/react-final-tests/react-agent-final.test.js",
     "test:final-presentation": "tsc --target ES2020 --module commonjs --moduleResolution node --esModuleInterop --skipLibCheck --strict --outDir node_modules/.cache/final-presentation-tests utils/final-presentation.ts utils/final-presentation.test.ts && node node_modules/.cache/final-presentation-tests/final-presentation.test.js",
-    "test:ui-visibility": "tsc --target ES2020 --module commonjs --moduleResolution node --esModuleInterop --skipLibCheck --strict --outDir node_modules/.cache/ui-visibility-tests config/ui-visibility.ts config/ui-visibility.test.ts && node node_modules/.cache/ui-visibility-tests/ui-visibility.test.js"
+    "test:ui-visibility": "tsc --target ES2020 --module commonjs --moduleResolution node --esModuleInterop --skipLibCheck --strict --outDir node_modules/.cache/ui-visibility-tests config/ui-visibility.ts config/ui-visibility.test.ts && node node_modules/.cache/ui-visibility-tests/ui-visibility.test.js",
+    "sync:ui-visibility": "node scripts/sync-ui-visibility.mjs"
   },
   "dependencies": {
     "@ant-design/cssinjs": "^1.18.4",

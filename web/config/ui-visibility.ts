@@ -1,4 +1,5 @@
 export const UI_VISIBILITY_CONFIG_URL = '/ui-visibility.json';
+export const UI_VISIBILITY_CACHE_KEY = 'dbgpt.ui-visibility.v1';
 export const UI_VISIBILITY_CONFIG_VERSION = 1 as const;
 
 export interface NavigationVisibility {
@@ -26,10 +27,16 @@ export interface ExploreVisibility {
   recommendedExampleIds: 'all' | string[];
 }
 
+export interface SidebarVisibility {
+  userProfile: boolean;
+  newTask: boolean;
+}
+
 export interface UiVisibilityConfig {
   version: typeof UI_VISIBILITY_CONFIG_VERSION;
   navigation: NavigationVisibility;
   explore: ExploreVisibility;
+  sidebar: SidebarVisibility;
 }
 
 export const DEFAULT_UI_VISIBILITY: UiVisibilityConfig = {
@@ -57,6 +64,10 @@ export const DEFAULT_UI_VISIBILITY: UiVisibilityConfig = {
     connectorSelector: true,
     recommendedExampleIds: 'all',
   },
+  sidebar: {
+    userProfile: true,
+    newTask: true,
+  },
 };
 
 const NAVIGATION_KEYS: Array<keyof NavigationVisibility> = [
@@ -83,6 +94,8 @@ const EXPLORE_BOOLEAN_KEYS: Array<Exclude<keyof ExploreVisibility, 'recommendedE
   'connectorSelector',
 ];
 
+const SIDEBAR_BOOLEAN_KEYS: Array<keyof SidebarVisibility> = ['userProfile', 'newTask'];
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
@@ -92,6 +105,7 @@ function cloneDefaults(): UiVisibilityConfig {
     version: UI_VISIBILITY_CONFIG_VERSION,
     navigation: { ...DEFAULT_UI_VISIBILITY.navigation },
     explore: { ...DEFAULT_UI_VISIBILITY.explore },
+    sidebar: { ...DEFAULT_UI_VISIBILITY.sidebar },
   };
 }
 
@@ -116,6 +130,13 @@ export function resolveUiVisibilityConfig(value: unknown): UiVisibilityConfig {
     const exampleIds = value.explore.recommendedExampleIds;
     if (exampleIds === 'all' || (Array.isArray(exampleIds) && exampleIds.every(id => typeof id === 'string'))) {
       resolved.explore.recommendedExampleIds = exampleIds === 'all' ? 'all' : [...exampleIds];
+    }
+  }
+
+  if (isRecord(value.sidebar)) {
+    for (const key of SIDEBAR_BOOLEAN_KEYS) {
+      const candidate = value.sidebar[key];
+      if (typeof candidate === 'boolean') resolved.sidebar[key] = candidate;
     }
   }
 

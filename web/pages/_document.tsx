@@ -37,7 +37,7 @@ class MyDocument extends Document {
     return (
       <Html lang='zh-CN'>
         <Head>
-          <link rel='icon' href='/favicon.ico' />
+          <link rel='icon' type='image/svg+xml' href='/brand-logo.svg' />
           <meta name='description' content='华工·筑视 智检助手' />
           <meta property='og:description' content='华工·筑视 智检助手' />
           <meta property='og:title' content='华工·筑视 智检助手' />

@@ -22,5 +22,9 @@
     "skillSelector": false,
     "connectorSelector": false,
     "recommendedExampleIds": ["db_profile_report"]
+  },
+  "sidebar": {
+    "userProfile": false,
+    "newTask": false
   }
 }

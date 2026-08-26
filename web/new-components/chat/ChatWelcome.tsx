@@ -125,10 +125,6 @@ const ChatWelcome: React.FC<ChatWelcomeProps> = ({
           ))}
         </div>
 
-        <div className='mt-8 flex items-center gap-2 text-xs text-[var(--oc-text-weaker)]'>
-          <span>Powered by</span>
-          <span className='font-medium text-[var(--oc-text-weak)]'>华工·筑视 智检助手</span>
-        </div>
       </div>
     </div>
   );

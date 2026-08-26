@@ -2,6 +2,7 @@ import {
   DEFAULT_UI_VISIBILITY,
   UI_VISIBILITY_CONFIG_URL,
   UiVisibilityConfig,
+  UI_VISIBILITY_CACHE_KEY,
   resolveUiVisibilityConfig,
 } from '@/config/ui-visibility';
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
@@ -11,14 +12,28 @@ interface UiVisibilityContextValue {
   ready: boolean;
 }
 
+function readCachedConfig(): UiVisibilityConfig | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const cached = window.sessionStorage.getItem(UI_VISIBILITY_CACHE_KEY);
+    if (!cached) return null;
+    const value: unknown = JSON.parse(cached);
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
+    if (!('version' in value) || value.version !== 1) return null;
+    return resolveUiVisibilityConfig(value);
+  } catch {
+    return null;
+  }
+}
+
 const UiVisibilityContext = createContext<UiVisibilityContextValue>({
   config: DEFAULT_UI_VISIBILITY,
   ready: false,
 });
 
 export function UiVisibilityProvider({ children }: { children: React.ReactNode }) {
-  const [config, setConfig] = useState<UiVisibilityConfig>(DEFAULT_UI_VISIBILITY);
-  const [ready, setReady] = useState(false);
+  const [config, setConfig] = useState<UiVisibilityConfig>(() => readCachedConfig() ?? DEFAULT_UI_VISIBILITY);
+  const [ready, setReady] = useState(() => readCachedConfig() !== null);
 
   useEffect(() => {
     let active = true;
@@ -31,7 +46,15 @@ export function UiVisibilityProvider({ children }: { children: React.ReactNode }
         return response.json();
       })
       .then(value => {
-        if (active) setConfig(resolveUiVisibilityConfig(value));
+        if (active) {
+          const resolved = resolveUiVisibilityConfig(value);
+          setConfig(resolved);
+          try {
+            window.sessionStorage.setItem(UI_VISIBILITY_CACHE_KEY, JSON.stringify(resolved));
+          } catch {
+            // Storage can be unavailable in private browsing or restricted WebViews.
+          }
+        }
       })
       .catch(error => {
         console.warn('Unable to load UI visibility config; using visible defaults.', error);

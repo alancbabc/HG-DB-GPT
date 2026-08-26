@@ -23,5 +23,9 @@
 | `explore.skillSelector` | `true` | Desktop composer | Skill execution stays active |
 | `explore.connectorSelector` | `true` | Desktop composer | Connector execution stays active |
 | `explore.recommendedExampleIds` | `"all"` | Desktop example cards | Example APIs and assets |
+| `sidebar.userProfile` | `true` | Desktop sidebar bottom profile | Authentication and user state remain unchanged |
+| `sidebar.newTask` | `true` | Desktop sidebar new-task button | Conversation creation and routes remain unchanged |
 
 Hidden routes remain directly accessible. Mobile chat is outside this configuration and remains unchanged.
+
+`web/public/ui-visibility.json` is the editable source. Run `npm run sync:ui-visibility` from `web/` after changing it; use `npm run sync:ui-visibility -- --check` in CI to detect drift in the Python static bundle. The last successfully loaded configuration is cached per browser tab, so a transient config request failure does not restore the previous visible UI during refreshes.

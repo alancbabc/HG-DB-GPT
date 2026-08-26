@@ -214,6 +214,7 @@ export const CommonEn = {
   used_apps: 'Used Apps',
   app_in_mind: "Don't have an app in mind? to",
   explore: 'Explore',
+  explore_nav: 'Explore',
   new_task: 'New Task',
   all_tasks: 'All Tasks',
   view_all: 'View All',
