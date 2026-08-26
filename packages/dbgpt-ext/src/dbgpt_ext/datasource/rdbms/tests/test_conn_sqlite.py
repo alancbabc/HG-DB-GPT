@@ -3,14 +3,18 @@ Run unit test with command: pytest dbgpt/datasource/rdbms/tests/test_conn_sqlite
 """
 
 import os
+import sqlite3
 import tempfile
+from unittest.mock import patch
 
 import pytest
 from sqlalchemy.exc import OperationalError
+from sqlalchemy.pool import NullPool
 
 from dbgpt_ext.datasource.rdbms.conn_sqlite import (
     SQLiteConnector,
     SQLiteConnectorParameters,
+    SQLiteReadOnlyUnavailableError,
 )
 
 
@@ -161,6 +165,7 @@ def test_read_only_connector_can_query_but_cannot_write(tmp_path):
 
     read_only = SQLiteConnector.from_file_path(str(file_path), read_only=True)
     try:
+        assert isinstance(read_only._engine.pool, NullPool)
         fields, rows = read_only.query_ex("SELECT id FROM production_data")
         assert fields == ["id"]
         assert rows == [(1,)]
@@ -169,6 +174,56 @@ def test_read_only_connector_can_query_but_cannot_write(tmp_path):
             read_only.run("INSERT INTO production_data(id) VALUES (2)")
     finally:
         read_only.close()
+
+
+def test_read_only_connector_reports_host_unavailable_and_recovers(tmp_path):
+    file_path = tmp_path / "production.db"
+    writable = SQLiteConnector.from_file_path(str(file_path))
+    try:
+        writable.run("CREATE TABLE production_data (id INTEGER PRIMARY KEY);")
+        writable.run("INSERT INTO production_data(id) VALUES (1)")
+    finally:
+        writable.close()
+
+    read_only = SQLiteConnector.from_file_path(str(file_path), read_only=True)
+    original_connect = read_only._engine.dialect.dbapi.connect
+    attempts = 0
+
+    def fail_once(*args, **kwargs):
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise sqlite3.OperationalError("unable to open database file")
+        return original_connect(*args, **kwargs)
+
+    try:
+        with patch.object(read_only._engine.dialect.dbapi, "connect", fail_once):
+            with pytest.raises(
+                SQLiteReadOnlyUnavailableError, match="SQLITE_HOST_NOT_READY"
+            ) as exc_info:
+                read_only.query_ex("SELECT id FROM production_data")
+
+            assert "请先启动写入宿主" in str(exc_info.value)
+            assert str(file_path.resolve()) in str(exc_info.value)
+            assert read_only.query_ex("SELECT id FROM production_data")[1] == [(1,)]
+    finally:
+        read_only.close()
+
+
+def test_writable_connector_does_not_translate_open_failure(tmp_path):
+    file_path = tmp_path / "development.db"
+    writable = SQLiteConnector.from_file_path(str(file_path))
+    writable._engine.dispose()
+
+    def fail(*args, **kwargs):
+        raise sqlite3.OperationalError("unable to open database file")
+
+    try:
+        with patch.object(writable._engine.dialect.dbapi, "connect", fail):
+            with pytest.raises(OperationalError, match="unable to open database file"):
+                writable.query_ex("SELECT 1")
+    finally:
+        writable.close()
 
 
 def test_read_only_connector_does_not_create_missing_path(tmp_path):

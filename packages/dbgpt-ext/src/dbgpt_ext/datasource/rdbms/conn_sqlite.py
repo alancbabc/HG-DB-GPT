@@ -9,6 +9,7 @@ from typing import Any, Iterable, List, Optional, Tuple, Type
 
 from sqlalchemy import create_engine, event, text
 from sqlalchemy.engine import URL, Engine
+from sqlalchemy.pool import NullPool
 
 from dbgpt.core.awel.flow import (
     TAGS_ORDER_HIGH,
@@ -20,6 +21,10 @@ from dbgpt.datasource.rdbms.base import RDBMSConnector
 from dbgpt.util.i18n_utils import _
 
 logger = logging.getLogger(__name__)
+
+
+class SQLiteReadOnlyUnavailableError(ConnectionError):
+    """Raised when a production read-only SQLite source cannot be opened."""
 
 
 @auto_register_resource(
@@ -163,10 +168,48 @@ class SQLiteConnector(RDBMSConnector):
         connect_args = dict(args.get("connect_args") or {})
         connect_args["check_same_thread"] = check_same_thread
         args["connect_args"] = connect_args
+        if read_only:
+            # A cached DB-API connection can keep serving stale state after the writer
+            # host exits. Opening a fresh physical connection for each operation makes
+            # host loss visible immediately and allows the next retry to recover after
+            # the host has reopened the WAL database.
+            args["poolclass"] = NullPool
         engine = create_engine(url, **args)
         if read_only:
             event.listen(engine, "connect", cls._enable_query_only)
+            event.listen(
+                engine,
+                "handle_error",
+                cls._read_only_error_handler(resolved_path),
+                retval=True,
+            )
         return engine
+
+    @classmethod
+    def _read_only_error_handler(cls, file_path: Path):
+        """Translate an unavailable WAL database into an actionable UI error."""
+
+        def _handle_error(exception_context):
+            original_error = exception_context.original_exception
+            if not cls._is_database_unavailable_error(original_error):
+                return None
+            logger.warning(
+                "Read-only SQLite datasource is unavailable at %s: %s",
+                file_path,
+                original_error,
+            )
+            return SQLiteReadOnlyUnavailableError(
+                "[SQLITE_HOST_NOT_READY] 该SQLite数据源当前不可用。请先启动写入"
+                "宿主并等待数据库完成打开（WAL/SHM就绪），同时检查数据库路径和"
+                f"读取权限，然后重试。路径：{file_path}"
+            )
+
+        return _handle_error
+
+    @staticmethod
+    def _is_database_unavailable_error(error: BaseException) -> bool:
+        """Return whether SQLite failed before opening the database file."""
+        return "unable to open database file" in str(error).lower()
 
     @staticmethod
     def _enable_query_only(dbapi_connection, connection_record) -> None:
