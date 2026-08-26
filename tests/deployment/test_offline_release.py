@@ -14,6 +14,31 @@ def _file(path: Path, content: bytes = b"stub") -> Path:
     return path
 
 
+def _model_store(root: Path) -> None:
+    blob = b"blob"
+    _file(root / "blobs" / "sha256-test", blob)
+    manifest = json.dumps(
+        {
+            "config": {"digest": "sha256:test", "size": len(blob)},
+            "layers": [],
+        }
+    ).encode()
+    for repository, tag in (
+        ("qwen3.5", "27b-q4_K_M"),
+        ("qwen3.5", "9b-q4_K_M"),
+        ("qwen3-embedding", "0.6b"),
+    ):
+        _file(
+            root
+            / "manifests"
+            / "registry.ollama.ai"
+            / "library"
+            / repository
+            / tag,
+            manifest,
+        )
+
+
 def test_build_verify_and_detect_tampering(tmp_path):
     inputs = tmp_path / "inputs"
     python_installer = _file(inputs / "python.exe")
@@ -26,7 +51,7 @@ def test_build_verify_and_detect_tampering(tmp_path):
     _file(wheelhouse / "ollama-0.6.0-py3-none-any.whl")
     _file(app_wheels / "dbgpt_app-0.8.1-py3-none-any.whl")
     _file(ollama / "ollama.exe")
-    _file(models / "model.gguf")
+    _model_store(models)
     output = tmp_path / "release"
     args = argparse.Namespace(
         output=output,
@@ -47,13 +72,14 @@ def test_build_verify_and_detect_tampering(tmp_path):
     manifest = json.loads((output / "release-manifest.json").read_text("utf-8"))
     assert manifest["schemaVersion"] == 2
     entries = {entry["path"]: entry for entry in manifest["files"]}
-    assert "sha256" not in entries["models/model.gguf"]
+    assert "sha256" not in entries["models/blobs/sha256-test"]
     assert "sha256" not in entries["wheelhouse/dependency-1.0-py3-none-any.whl"]
     assert "sha256" in entries["scripts/Install-DBGPTOffline.ps1"]
     for script in (
         "Backup-DBGPTData.ps1",
         "Restore-DBGPTData.ps1",
         "Test-OfflinePythonMedia.ps1",
+        "ollama_model_store.py",
         "runtime_data.py",
         "sqlite_live_read_probe.py",
     ):

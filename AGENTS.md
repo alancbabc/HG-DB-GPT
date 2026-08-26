@@ -64,6 +64,7 @@
 - 模型大小、量化、上下文长度、并发数和常驻时间必须根据产线 CPU、内存、GPU/显存和任务延迟要求实测确定；未经实测不承诺性能。
 - 禁止配置不可用的云端 fallback；离线环境中的模型不可用应快速失败并给出明确诊断。
 - 已确认主 LLM 为 `qwen3.5:27b-q4_K_M`，备用 LLM 为 `qwen3.5:9b-q4_K_M`，Embedding 为 `qwen3-embedding:0.6b`。干净断网测试机使用 RTX 5090，最终产线性能在 RTX 3090 24 GB 上复测。
+- 模型介质使用Ollama原生 `manifests` 与 `blobs` 仓库，发布前用 `ollama_model_store.py` 校验三个固定标签、blob存在性和大小，不对大模型重复计算哈希。产线Ollama设置 `OLLAMA_NO_CLOUD=1`，默认单模型、单路推理和8192上下文，只有3090实测通过后才能提高并发或上下文。
 
 ## 生产 SQLite 只读与并发原则
 

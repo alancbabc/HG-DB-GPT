@@ -2,9 +2,12 @@
 
 ## 当前状态
 
-本阶段已提供只监听本机的生产配置模板和不访问互联网的Ollama健康检查工具。当前开发机没有Ollama可执行程序、Python `ollama` 包或运行在11434端口的服务，因此只能通过本地模拟服务完成接口自动化测试，不能将真实LLM与Embedding标记为已验收。
+本阶段已提供只监听本机的生产配置模板和不访问互联网的Ollama健康检查工具。Python离线介质已包含并真实安装验证 `ollama` 客户端；当前开发机仍没有Ollama服务和真实模型，因此不能将真实LLM与Embedding标记为已验收。
 
-已确认后续真实模型为：主 LLM `qwen3.5:27b-q4_K_M`、备用 LLM `qwen3.5:9b-q4_K_M`、Embedding `qwen3-embedding:0.6b`。先在 RTX 5090 干净断网测试机完成安装和功能验证，最终在 RTX 3090 24 GB 产线机复测显存与响应时间。
+已确认后续真实模型为：主 LLM `qwen3.5:27b-q4_K_M`、备用 LLM `qwen3.5:9b-q4_K_M`、Embedding `qwen3-embedding:0.6b`。三个标签已在Ollama官方模型库确认存在；当前页面标示的介质规模约为17 GB、6.6 GB和639 MB。先在 RTX 5090 干净断网测试机完成安装和功能验证，最终在 RTX 3090 24 GB 产线机复测显存与响应时间。
+
+- [qwen3.5 标签列表](https://ollama.com/library/qwen3.5/tags)
+- [qwen3-embedding 标签列表](https://ollama.com/library/qwen3-embedding/tags)
 
 ## 配置模板
 
@@ -13,6 +16,7 @@
 - `DBGPT_ENCRYPT_KEY`：每台设备单独生成，不提交仓库。
 - `DBGPT_DATA_DIR`：DB-GPT可写运行数据绝对路径。
 - `DBGPT_LLM_MODEL`：Ollama已注册的本地LLM名称。
+- `DBGPT_FALLBACK_LLM_MODEL`：主模型不可用或性能不足时人工切换的备用LLM。
 - `DBGPT_EMBEDDING_MODEL`：Ollama已注册的本地Embedding名称。
 
 Web和Ollama API均使用回环地址。模板没有云模型fallback，也不包含机器专用密钥、模型文件或生产路径。
@@ -23,15 +27,16 @@ Web和Ollama API均使用回环地址。模板没有云模型fallback，也不�
 
 ```powershell
 .venv\Scripts\python.exe scripts\windows\check_ollama_offline.py `
-  --llm-model $env:DBGPT_LLM_MODEL `
-  --embedding-model $env:DBGPT_EMBEDDING_MODEL
+  --llm-model qwen3.5:27b-q4_K_M `
+  --fallback-llm-model qwen3.5:9b-q4_K_M `
+  --embedding-model qwen3-embedding:0.6b
 ```
 
 工具只允许访问HTTP回环地址，并依次验证：
 
 1. Ollama版本接口可达；
-2. LLM和Embedding名称均存在于本地模型列表；
-3. LLM非流式生成返回有效文本；
+2. 主LLM、备用LLM和Embedding名称均存在于本地模型列表；
+3. 两个LLM分别完成非流式生成并立即卸载；
 4. Embedding返回至少一个非空向量。
 
 任一检查失败均返回非零退出码，不尝试下载模型或切换云服务。
@@ -43,4 +48,4 @@ Web和Ollama API均使用回环地址。模板没有云模型fallback，也不�
 .venv\Scripts\ruff.exe check scripts\windows\check_ollama_offline.py tests\deployment\test_ollama_offline_check.py
 ```
 
-模拟测试通过后，本阶段仍保留以下目标机验收项：离线导入7B至14B量化LLM和本地Embedding、运行本工具、验证中文SQL生成、工具调用、知识库检索、定时任务、显存和失败恢复。模型介质和3090目标机到位前不能关闭这些验收项。
+模拟测试通过后，本阶段仍保留以下目标机验收项：离线导入已确认的27B、9B量化LLM和0.6B Embedding、运行本工具、验证中文SQL生成、工具调用、知识库检索、定时任务、显存和失败恢复。模型介质和3090目标机到位前不能关闭这些验收项。

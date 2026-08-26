@@ -10,11 +10,17 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Iterable, List
 
+try:
+    from scripts.windows.ollama_model_store import inspect_model_store
+except ModuleNotFoundError:
+    from ollama_model_store import inspect_model_store
+
 MANIFEST_NAME = "release-manifest.json"
 REQUIRED_REPOSITORY_FILES = (
     "configs/dbgpt-windows-offline-ollama.example.toml",
     "scripts/windows/check_installed_runtime.py",
     "scripts/windows/check_ollama_offline.py",
+    "scripts/windows/ollama_model_store.py",
     "scripts/windows/collect-deployment-baseline.ps1",
     "scripts/windows/sqlite_concurrency_probe.py",
     "scripts/windows/sqlite_live_read_probe.py",
@@ -81,8 +87,9 @@ def _validate_inputs(args: argparse.Namespace) -> None:
         raise ValueError("app-wheels must contain DB-GPT wheel files")
     if not (args.ollama_dir / "ollama.exe").is_file():
         raise ValueError("ollama directory must contain ollama.exe")
-    if not any(path.is_file() for path in args.models_dir.rglob("*")):
-        raise ValueError("models directory must not be empty")
+    model_report = inspect_model_store(args.models_dir)
+    if not model_report["success"]:
+        raise ValueError("; ".join(model_report["errors"]))
     if args.output.exists():
         raise ValueError(f"Output path already exists: {args.output}")
 

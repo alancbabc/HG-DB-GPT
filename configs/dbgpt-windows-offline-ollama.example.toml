@@ -23,6 +23,12 @@ provider = "proxy/ollama"
 api_base = "http://127.0.0.1:11434"
 api_key = ""
 
+[[models.llms]]
+name = "${env:DBGPT_FALLBACK_LLM_MODEL}"
+provider = "proxy/ollama"
+api_base = "http://127.0.0.1:11434"
+api_key = ""
+
 [[models.embeddings]]
 name = "${env:DBGPT_EMBEDDING_MODEL}"
 provider = "proxy/ollama"

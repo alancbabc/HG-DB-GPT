@@ -69,6 +69,10 @@ Copy-Item -LiteralPath (Join-Path $release "scripts") `
     -Destination (Join-Path $InstallRoot "scripts") -Recurse
 Copy-Item -Path (Join-Path $release "models\*") `
     -Destination $ModelRoot -Recurse
+& $python (Join-Path $InstallRoot "scripts\ollama_model_store.py") $ModelRoot
+if ($LASTEXITCODE -ne 0) {
+    throw "Installed Ollama model store validation failed"
+}
 New-Item -ItemType Directory -Path (Join-Path $InstallRoot "config") | Out-Null
 Copy-Item -LiteralPath (
     Join-Path $release "config\dbgpt-windows-offline-ollama.example.toml"

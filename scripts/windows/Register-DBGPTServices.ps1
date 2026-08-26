@@ -6,10 +6,11 @@ param(
     [string]$DataRoot,
     [Parameter(Mandatory = $true)]
     [string]$ModelRoot,
-    [Parameter(Mandatory = $true)]
-    [string]$LlmModel,
-    [Parameter(Mandatory = $true)]
-    [string]$EmbeddingModel
+    [string]$LlmModel = "qwen3.5:27b-q4_K_M",
+    [string]$FallbackLlmModel = "qwen3.5:9b-q4_K_M",
+    [string]$EmbeddingModel = "qwen3-embedding:0.6b",
+    [ValidateRange(2048, 131072)]
+    [int]$ContextLength = 8192
 )
 
 $ErrorActionPreference = "Stop"
@@ -56,7 +57,9 @@ New-Item -ItemType Directory -Force -Path $dataDirectories | Out-Null
 & $nssm install HGTechOllama $ollama "serve"
 & $nssm set HGTechOllama AppDirectory (Split-Path $ollama)
 & $nssm set HGTechOllama AppEnvironmentExtra `
-    "OLLAMA_HOST=127.0.0.1:11434" "OLLAMA_MODELS=$ModelRoot"
+    "OLLAMA_HOST=127.0.0.1:11434" "OLLAMA_MODELS=$ModelRoot" `
+    "OLLAMA_NO_CLOUD=1" "OLLAMA_MAX_LOADED_MODELS=1" `
+    "OLLAMA_NUM_PARALLEL=1" "OLLAMA_CONTEXT_LENGTH=$ContextLength"
 & $nssm set HGTechOllama AppStdout (Join-Path $DataRoot "logs\ollama\stdout.log")
 & $nssm set HGTechOllama AppStderr (Join-Path $DataRoot "logs\ollama\stderr.log")
 & $nssm set HGTechOllama AppRotateFiles 1
@@ -79,6 +82,7 @@ $encryptKey = (([BitConverter]::ToString($randomBytes)) -replace "-", "").ToLowe
 & $nssm set HGTechDBGPT DependOnService HGTechOllama
 & $nssm set HGTechDBGPT AppEnvironmentExtra `
     "DBGPT_DATA_DIR=$DataRoot" "DBGPT_LLM_MODEL=$LlmModel" `
+    "DBGPT_FALLBACK_LLM_MODEL=$FallbackLlmModel" `
     "DBGPT_EMBEDDING_MODEL=$EmbeddingModel" "DBGPT_ENCRYPT_KEY=$encryptKey"
 & $nssm set HGTechDBGPT AppStdout (Join-Path $DataRoot "logs\dbgpt\stdout.log")
 & $nssm set HGTechDBGPT AppStderr (Join-Path $DataRoot "logs\dbgpt\stderr.log")

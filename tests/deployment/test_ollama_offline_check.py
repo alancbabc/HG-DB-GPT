@@ -24,7 +24,13 @@ class _OllamaStub(BaseHTTPRequestHandler):
             self._send({"version": "test"})
         elif self.path == "/api/tags":
             self._send(
-                {"models": [{"name": "local-llm"}, {"name": "local-embed"}]}
+                {
+                    "models": [
+                        {"name": "local-llm"},
+                        {"name": "fallback-llm"},
+                        {"name": "local-embed"},
+                    ]
+                }
             )
         else:
             self.send_error(404)
@@ -32,9 +38,14 @@ class _OllamaStub(BaseHTTPRequestHandler):
     def do_POST(self):
         length = int(self.headers.get("Content-Length", "0"))
         payload = json.loads(self.rfile.read(length))
-        if self.path == "/api/generate" and payload["model"] == "local-llm":
+        if self.path == "/api/generate" and payload["model"] in (
+            "local-llm",
+            "fallback-llm",
+        ):
+            assert payload["keep_alive"] == 0
             self._send({"response": "健康"})
         elif self.path == "/api/embed" and payload["model"] == "local-embed":
+            assert payload["keep_alive"] == 0
             self._send({"embeddings": [[0.1, 0.2, 0.3]]})
         else:
             self.send_error(400)
@@ -66,6 +77,20 @@ def test_check_ollama_reports_missing_model(ollama_stub):
 
     assert report["success"] is False
     assert report["checks"]["llmInstalled"] is False
+
+
+def test_check_ollama_validates_fallback_generation(ollama_stub):
+    report = check_ollama(
+        ollama_stub,
+        "local-llm",
+        "local-embed",
+        2,
+        fallback_llm_model="fallback-llm",
+    )
+
+    assert report["success"] is True
+    assert report["checks"]["fallbackLlmInstalled"] is True
+    assert report["checks"]["fallbackGenerationWorks"] is True
 
 
 def test_check_ollama_rejects_non_loopback_url():

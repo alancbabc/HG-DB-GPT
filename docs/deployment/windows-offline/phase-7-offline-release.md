@@ -55,6 +55,7 @@ powershell -ExecutionPolicy Bypass -File `
   -DataRoot "C:\ProgramData\HGTech\DB-GPT" `
   -ModelRoot "D:\HGTech\OllamaModels" `
   -LlmModel "已离线注册的LLM名称" `
+  -FallbackLlmModel "已离线注册的备用LLM名称" `
   -EmbeddingModel "已离线注册的Embedding名称"
 ```
 
@@ -63,7 +64,7 @@ powershell -ExecutionPolicy Bypass -File `
 - 固定版本的Python Windows x64安装程序和必要VC运行库；
 - 使用锁文件在联网构建机下载的完整Windows x64 wheelhouse，其中必须包含 `proxy_ollama`及可被安装器识别的 `ollama-*.whl`；
 - 当前提交对应的全部DB-GPT wheels和预构建静态Web资源；
-- Ollama独立Windows程序、NSSM和已校验模型文件；
+- Ollama独立Windows程序、NSSM和通过阶段12校验的Ollama模型仓库；
 - 目标模型的本地注册/导入说明。
 
 不得把模型、机器密钥、生产数据库和目标机路径提交Git。
