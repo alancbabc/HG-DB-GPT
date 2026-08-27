@@ -82,6 +82,7 @@ def test_build_verify_and_detect_tampering(tmp_path):
         "Backup-DBGPTData.ps1",
         "Restore-DBGPTData.ps1",
         "Test-OfflinePythonMedia.ps1",
+        "Test-DBGPTOfflineInstallation.ps1",
         "Prepare-WindowsRuntimeMedia.ps1",
         "ollama_model_store.py",
         "runtime_media.py",
@@ -184,3 +185,67 @@ def test_installer_explicitly_installs_ollama_and_runs_runtime_check():
     assert "check_installed_runtime.py" in installer
     assert "vc-redist.x64.exe" in installer
     assert '"/install", "/quiet", "/norestart"' in installer
+
+
+def test_service_registration_checks_native_failures_and_protects_models():
+    registration = Path("scripts/windows/Register-DBGPTServices.ps1").read_text(
+        "utf-8"
+    )
+
+    assert "function Invoke-NativeCommand" in registration
+    assert "$LASTEXITCODE -ne 0" in registration
+    assert "Administrator PowerShell is required" in registration
+    assert '"*S-1-5-20:(OI)(CI)RX"' in registration
+    assert '"/inheritance:r"' in registration
+
+
+def test_installed_acceptance_checks_services_loopback_and_offline_models():
+    acceptance = Path("scripts/windows/Test-DBGPTOfflineInstallation.ps1").read_text(
+        "utf-8"
+    )
+
+    assert "Get-Service" in acceptance
+    assert "Get-NetTCPConnection" in acceptance
+    assert "Get-NetAdapter -Physical" in acceptance
+    assert 'response.status -eq "ok"' in acceptance
+    assert "check_ollama_offline.py" in acceptance
+    assert "ollama_model_store.py" in acceptance
+
+
+def test_installed_acceptance_fails_fast_when_services_are_missing(tmp_path):
+    install = tmp_path / "installed"
+    models = tmp_path / "models"
+    models.mkdir()
+    for relative in (
+        "python/python.exe",
+        "scripts/check_ollama_offline.py",
+        "scripts/ollama_model_store.py",
+    ):
+        _file(install / relative)
+
+    result = subprocess.run(
+        [
+            "powershell",
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            "scripts/windows/Test-DBGPTOfflineInstallation.ps1",
+            "-InstallRoot",
+            str(install),
+            "-ModelRoot",
+            str(models),
+            "-TimeoutSeconds",
+            "1",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+
+    assert result.returncode == 1
+    report = json.loads(result.stdout)
+    assert report["success"] is False
+    assert report["checks"]["HGTechOllamaRunning"] is False
+    assert report["checks"]["HGTechDBGPTRunning"] is False

@@ -2,7 +2,7 @@
 
 ## 发布包构成
 
-发布构建工具要求显式提供Python x64离线安装程序、完整wheelhouse、DB-GPT应用wheels、Ollama独立程序、本地模型目录和NSSM。工具不会联网，不接受缺失介质，也不会覆盖已有输出目录。
+发布构建工具要求显式提供Python x64离线安装程序、VC++运行库、完整wheelhouse、DB-GPT应用wheels、Ollama独立程序、本地模型目录和NSSM。工具不会联网，不接受缺失介质，也不会覆盖已有输出目录。
 
 ```powershell
 .venv\Scripts\python.exe scripts\windows\offline_release.py build `
@@ -42,7 +42,7 @@ powershell -ExecutionPolicy Bypass -File scripts\Install-DBGPTOffline.ps1 `
 
 `Register-DBGPTServices.ps1`使用NSSM注册两个服务：
 
-- `HGTechOllama` 使用 `NetworkService`，只监听 `127.0.0.1:11434`，对模型目录具有修改权限。
+- `HGTechOllama` 使用 `NetworkService`，只监听 `127.0.0.1:11434`，对模型目录只有读取和执行权限；模型更新必须由管理员离线维护。
 - `HGTechDBGPT` 使用 `LocalService`，依赖Ollama服务，对DB-GPT数据目录具有修改权限。
 
 程序目录只授予两个账户读取和执行权限。生产数据库ACL不由脚本自动修改，防止安装器扩大生产目录权限；必须在明确真实路径后单独授予 `LocalService` 所需的最小读取权限，并验证主库、`-wal`、`-shm`和目录访问。
@@ -60,13 +60,13 @@ powershell -ExecutionPolicy Bypass -File `
   -EmbeddingModel "已离线注册的Embedding名称"
 ```
 
-## 仍需准备的真实介质
+## 已准备的真实介质
 
-- 固定版本的Python Windows x64安装程序和必要VC运行库；
-- 使用锁文件在联网构建机下载的完整Windows x64 wheelhouse，其中必须包含 `proxy_ollama`及可被安装器识别的 `ollama-*.whl`；
-- 当前提交对应的全部DB-GPT wheels和预构建静态Web资源；
-- Ollama独立Windows程序、NSSM和通过阶段12校验的Ollama模型仓库；
-- 目标模型的本地注册/导入说明。
+- Python 3.11.9 Windows x64安装器和VC++ 14.50.35719.0运行库；
+- 217个Windows x64依赖wheel，包括 `proxy_ollama`使用的Ollama Python客户端；
+- 当前提交对应的7个DB-GPT wheel和预构建静态Web资源；
+- Ollama 0.32.15独立程序、NSSM 2.24-101和24.65GB三模型仓库；
+- 模型准备、验证和目标机安装后验收脚本。
 
 不得把模型、机器密钥、生产数据库和目标机路径提交Git。
 

@@ -11,8 +11,9 @@
 - 日志文件：0；
 - SQLite/数据库文件：0。
 
-本地候选目录为 `.stage15-offline-release`，仅用于移动介质和断网测试，不提交
-Git。该目录包含：Python 3.11.9安装器、VC++运行库、NSSM、Ollama及GPU运行库、
+该阶段的本地候选目录为 `.stage15-offline-release`，随后已由包含阶段16服务验收
+修复的新候选包替换，所有大型发布物均不提交Git。发布目录包含：Python 3.11.9
+安装器、VC++运行库、NSSM、Ollama及GPU运行库、
 7个DB-GPT应用wheel、217个依赖wheel、三个Ollama模型、配置模板和全部安装运维
 脚本。
 
