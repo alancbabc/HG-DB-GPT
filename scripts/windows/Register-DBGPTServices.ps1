@@ -35,10 +35,14 @@ $nssm = Join-Path $install "tools\nssm.exe"
 $ollama = Join-Path $install "ollama\ollama.exe"
 $dbgpt = Join-Path $install "python\Scripts\dbgpt.exe"
 $config = Join-Path $install "config\dbgpt-windows-offline-ollama.toml"
+$metadataTemplate = Join-Path $install "metadata-template"
 foreach ($required in ($nssm, $ollama, $dbgpt, $config)) {
     if (-not (Test-Path -LiteralPath $required -PathType Leaf)) {
         throw "Required installed file is missing: $required"
     }
+}
+if (-not (Test-Path -LiteralPath $metadataTemplate -PathType Container)) {
+    throw "Required metadata template is missing: $metadataTemplate"
 }
 
 if (-not $PSCmdlet.ShouldProcess($install, "Register DB-GPT and Ollama services")) {
@@ -70,6 +74,17 @@ $dataDirectories = @(
     (Join-Path $DataRoot "logs\ollama")
 )
 New-Item -ItemType Directory -Force -Path $dataDirectories | Out-Null
+$metadataRoot = Join-Path $DataRoot "metadata"
+Get-ChildItem -LiteralPath $metadataTemplate -Recurse -File | ForEach-Object {
+    $relative = $_.FullName.Substring($metadataTemplate.Length).TrimStart("\")
+    $destination = Join-Path $metadataRoot $relative
+    if (-not (Test-Path -LiteralPath $destination)) {
+        New-Item -ItemType Directory -Force -Path (
+            Split-Path -Parent $destination
+        ) | Out-Null
+        Copy-Item -LiteralPath $_.FullName -Destination $destination
+    }
+}
 Invoke-NativeCommand -FilePath "icacls.exe" -Arguments @(
     $install, "/grant", "*S-1-5-19:(OI)(CI)RX", "*S-1-5-20:(OI)(CI)RX"
 ) -Description "Grant service read access to the installation"
@@ -77,9 +92,15 @@ Invoke-NativeCommand -FilePath "icacls.exe" -Arguments @(
     $DataRoot, "/grant", "*S-1-5-19:(OI)(CI)M"
 ) -Description "Grant LocalService access to DB-GPT data"
 Invoke-NativeCommand -FilePath "icacls.exe" -Arguments @(
-    $ModelRoot, "/inheritance:r", "/grant:r", "*S-1-5-32-544:(OI)(CI)F",
-    "*S-1-5-18:(OI)(CI)F", "*S-1-5-20:(OI)(CI)RX", "/T", "/C"
-) -Description "Restrict the offline model store to read-only service access"
+    $ModelRoot, "/inheritance:r"
+) -Description "Remove inherited permissions from the offline model store"
+Invoke-NativeCommand -FilePath "icacls.exe" -Arguments @(
+    $ModelRoot, "/grant:r", "*S-1-5-32-544:(OI)(CI)F",
+    "*S-1-5-18:(OI)(CI)F", "*S-1-5-20:(OI)(CI)RX"
+) -Description "Grant explicit read-only service access to the offline model store"
+Invoke-NativeCommand -FilePath "icacls.exe" -Arguments @(
+    (Join-Path $ModelRoot "*"), "/reset", "/T", "/C"
+) -Description "Reset model descendants to inherit the protected root ACL"
 Invoke-NativeCommand -FilePath "icacls.exe" -Arguments @(
     (Join-Path $DataRoot "logs\ollama"), "/grant", "*S-1-5-20:(OI)(CI)M"
 ) -Description "Grant Ollama log access"
@@ -139,7 +160,8 @@ Invoke-NativeCommand $nssm @(
     "set", "HGTechDBGPT", "AppEnvironmentExtra",
     "DBGPT_DATA_DIR=$DataRoot", "DBGPT_LLM_MODEL=$LlmModel",
     "DBGPT_FALLBACK_LLM_MODEL=$FallbackLlmModel",
-    "DBGPT_EMBEDDING_MODEL=$EmbeddingModel", "DBGPT_ENCRYPT_KEY=$encryptKey"
+    "DBGPT_EMBEDDING_MODEL=$EmbeddingModel", "DBGPT_ENCRYPT_KEY=$encryptKey",
+    "PYTHONUTF8=1", "PYTHONIOENCODING=utf-8"
 ) "Set the DB-GPT environment"
 Invoke-NativeCommand $nssm @(
     "set", "HGTechDBGPT", "AppStdout", (Join-Path $DataRoot "logs\dbgpt\stdout.log")

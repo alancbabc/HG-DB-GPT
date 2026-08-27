@@ -29,15 +29,54 @@ if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administra
     throw "Administrator PowerShell is required"
 }
 
+$runtimeLock = Get-Content -Raw -LiteralPath (
+    Join-Path $release "scripts\runtime-media.lock.json"
+) | ConvertFrom-Json
+$vcArtifact = $runtimeLock.artifacts | Where-Object { $_.id -eq "vcRedist" }
+if ($null -eq $vcArtifact) {
+    throw "VC++ runtime version is missing from runtime-media.lock.json"
+}
+$requiredVcVersion = [version]$vcArtifact.version
+$vcRegistryPath = "HKLM:\SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x64"
+$installedVc = Get-ItemProperty -LiteralPath $vcRegistryPath `
+    -ErrorAction SilentlyContinue
+$installedVcVersion = $null
+if ($null -ne $installedVc -and $installedVc.Installed -eq 1) {
+    try {
+        $installedVcVersion = [version]($installedVc.Version.TrimStart("v"))
+    }
+    catch {
+        $installedVcVersion = $null
+    }
+}
+if ($null -eq $installedVcVersion -or $installedVcVersion -lt $requiredVcVersion) {
+    $vcRedist = Join-Path $release "runtime\vc-redist.x64.exe"
+    $vcProcess = Start-Process -FilePath $vcRedist `
+        -ArgumentList @("/install", "/quiet", "/norestart") `
+        -WindowStyle Hidden -PassThru
+    $vcProcess.WaitForExit()
+    if ($vcProcess.ExitCode -eq 3010) {
+        throw "Visual C++ runtime installed; Windows restart is required before rerunning this installer"
+    }
+    if ($vcProcess.ExitCode -notin @(0, 1638)) {
+        throw "Visual C++ Redistributable failed with exit code $($vcProcess.ExitCode)"
+    }
+    $installedVc = Get-ItemProperty -LiteralPath $vcRegistryPath `
+        -ErrorAction SilentlyContinue
+    if ($null -eq $installedVc -or $installedVc.Installed -ne 1) {
+        throw "Visual C++ runtime installation was not registered"
+    }
+    $installedVcVersion = [version]($installedVc.Version.TrimStart("v"))
+    if ($installedVcVersion -lt $requiredVcVersion) {
+        throw "Installed Visual C++ runtime is older than $requiredVcVersion"
+    }
+}
+else {
+    Write-Output "Visual C++ runtime $installedVcVersion already satisfies $requiredVcVersion"
+}
+
 New-Item -ItemType Directory -Path $InstallRoot | Out-Null
 New-Item -ItemType Directory -Force -Path $DataRoot, $ModelRoot | Out-Null
-$vcRedist = Join-Path $release "runtime\vc-redist.x64.exe"
-$vcProcess = Start-Process -FilePath $vcRedist `
-    -ArgumentList @("/install", "/quiet", "/norestart") `
-    -WindowStyle Hidden -Wait -PassThru
-if ($vcProcess.ExitCode -notin @(0, 1638, 3010)) {
-    throw "Visual C++ Redistributable failed with exit code $($vcProcess.ExitCode)"
-}
 $pythonRoot = Join-Path $InstallRoot "python"
 $pythonInstaller = Join-Path $release "runtime\python-installer.exe"
 $arguments = @(
@@ -49,7 +88,8 @@ $arguments = @(
     "PrependPath=0"
 )
 $process = Start-Process -FilePath $pythonInstaller -ArgumentList $arguments `
-    -WindowStyle Hidden -Wait -PassThru
+    -WindowStyle Hidden -PassThru
+$process.WaitForExit()
 if ($process.ExitCode -ne 0) {
     throw "Python installer failed with exit code $($process.ExitCode)"
 }
@@ -74,6 +114,8 @@ Copy-Item -LiteralPath (Join-Path $release "tools") `
     -Destination (Join-Path $InstallRoot "tools") -Recurse
 Copy-Item -LiteralPath (Join-Path $release "scripts") `
     -Destination (Join-Path $InstallRoot "scripts") -Recurse
+Copy-Item -LiteralPath (Join-Path $release "metadata-template") `
+    -Destination (Join-Path $InstallRoot "metadata-template") -Recurse
 Copy-Item -Path (Join-Path $release "models\*") `
     -Destination $ModelRoot -Recurse
 & $python (Join-Path $InstallRoot "scripts\ollama_model_store.py") $ModelRoot

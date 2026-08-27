@@ -78,11 +78,19 @@ def test_build_verify_and_detect_tampering(tmp_path):
     assert "sha256" not in entries["wheelhouse/dependency-1.0-py3-none-any.whl"]
     assert "sha256" in entries["scripts/Install-DBGPTOffline.ps1"]
     assert "sha256" in entries["runtime/vc-redist.x64.exe"]
+    for relative in (
+        "metadata-template/alembic.ini",
+        "metadata-template/alembic/README",
+        "metadata-template/alembic/env.py",
+        "metadata-template/alembic/script.py.mako",
+    ):
+        assert "sha256" in entries[relative]
     for script in (
         "Backup-DBGPTData.ps1",
         "Restore-DBGPTData.ps1",
         "Test-OfflinePythonMedia.ps1",
         "Test-DBGPTOfflineInstallation.ps1",
+        "Set-DBGPTProcessNetworkIsolation.ps1",
         "Prepare-WindowsRuntimeMedia.ps1",
         "ollama_model_store.py",
         "runtime_media.py",
@@ -117,6 +125,7 @@ def test_build_verify_and_detect_tampering(tmp_path):
         "ollama/ollama.exe",
         "python/Scripts/dbgpt.exe",
         "config/dbgpt-windows-offline-ollama.toml",
+        "metadata-template/alembic/env.py",
     ):
         _file(installed / relative)
     service_what_if = subprocess.run(
@@ -185,6 +194,25 @@ def test_installer_explicitly_installs_ollama_and_runs_runtime_check():
     assert "check_installed_runtime.py" in installer
     assert "vc-redist.x64.exe" in installer
     assert '"/install", "/quiet", "/norestart"' in installer
+    assert "Windows restart is required before rerunning" in installer
+    assert "runtime-media.lock.json" in installer
+    assert "$vcProcess.WaitForExit()" in installer
+    assert "$process.WaitForExit()" in installer
+    assert "-WindowStyle Hidden -Wait -PassThru" not in installer
+    assert installer.index("$vcProcess = Start-Process") < installer.index(
+        "New-Item -ItemType Directory -Path $InstallRoot"
+    )
+
+
+def test_powershell_validators_set_explicit_success_exit_codes():
+    for relative in (
+        "Test-OfflineRelease.ps1",
+        "Test-OfflinePythonMedia.ps1",
+        "Test-DBGPTOfflineInstallation.ps1",
+        "Set-DBGPTProcessNetworkIsolation.ps1",
+    ):
+        script = Path("scripts/windows", relative).read_text("utf-8")
+        assert script.rstrip().endswith("exit 0"), relative
 
 
 def test_service_registration_checks_native_failures_and_protects_models():
@@ -197,6 +225,14 @@ def test_service_registration_checks_native_failures_and_protects_models():
     assert "Administrator PowerShell is required" in registration
     assert '"*S-1-5-20:(OI)(CI)RX"' in registration
     assert '"/inheritance:r"' in registration
+    assert registration.index('"/inheritance:r"') < registration.index(
+        '"/grant:r"'
+    )
+    assert '"/reset"' in registration
+    assert "PYTHONUTF8=1" in registration
+    assert "PYTHONIOENCODING=utf-8" in registration
+    assert 'Join-Path $install "metadata-template"' in registration
+    assert "Copy-Item -LiteralPath $_.FullName" in registration
 
 
 def test_installed_acceptance_checks_services_loopback_and_offline_models():
@@ -210,6 +246,22 @@ def test_installed_acceptance_checks_services_loopback_and_offline_models():
     assert 'response.status -eq "ok"' in acceptance
     assert "check_ollama_offline.py" in acceptance
     assert "ollama_model_store.py" in acceptance
+    assert "RequireProcessNetworkIsolation" in acceptance
+    assert "Set-DBGPTProcessNetworkIsolation.ps1" in acceptance
+
+
+def test_process_network_isolation_is_scoped_and_reversible():
+    isolation = Path(
+        "scripts/windows/Set-DBGPTProcessNetworkIsolation.ps1"
+    ).read_text("utf-8")
+
+    assert 'RemoteAddress "Internet"' in isolation
+    assert "python\\python.exe" in isolation
+    assert "ollama\\ollama.exe" in isolation
+    assert "ollama\\lib\\ollama\\llama-server.exe" in isolation
+    assert 'ValidateSet("Apply", "Remove", "Status")' in isolation
+    assert "Remove-NetFirewallRule -Name" in isolation
+    assert "Get-NetFirewallProfile" in isolation
 
 
 def test_installed_acceptance_fails_fast_when_services_are_missing(tmp_path):
@@ -220,6 +272,7 @@ def test_installed_acceptance_fails_fast_when_services_are_missing(tmp_path):
         "python/python.exe",
         "scripts/check_ollama_offline.py",
         "scripts/ollama_model_store.py",
+        "metadata-template/alembic/env.py",
     ):
         _file(install / relative)
 
@@ -237,6 +290,10 @@ def test_installed_acceptance_fails_fast_when_services_are_missing(tmp_path):
             str(models),
             "-TimeoutSeconds",
             "1",
+            "-OllamaServiceName",
+            "HGTechTestMissingOllama",
+            "-DBGPTServiceName",
+            "HGTechTestMissingDBGPT",
         ],
         check=False,
         capture_output=True,
@@ -247,5 +304,5 @@ def test_installed_acceptance_fails_fast_when_services_are_missing(tmp_path):
     assert result.returncode == 1
     report = json.loads(result.stdout)
     assert report["success"] is False
-    assert report["checks"]["HGTechOllamaRunning"] is False
-    assert report["checks"]["HGTechDBGPTRunning"] is False
+    assert report["checks"]["HGTechTestMissingOllamaRunning"] is False
+    assert report["checks"]["HGTechTestMissingDBGPTRunning"] is False

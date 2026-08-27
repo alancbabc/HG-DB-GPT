@@ -63,3 +63,4 @@ $report | ConvertTo-Json -Depth 4
 if ($errors.Count -ne 0) {
     exit 1
 }
+exit 0

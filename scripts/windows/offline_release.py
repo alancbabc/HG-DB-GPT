@@ -27,6 +27,7 @@ REQUIRED_REPOSITORY_FILES = (
     "scripts/windows/Test-OfflineRelease.ps1",
     "scripts/windows/Test-OfflinePythonMedia.ps1",
     "scripts/windows/Test-DBGPTOfflineInstallation.ps1",
+    "scripts/windows/Set-DBGPTProcessNetworkIsolation.ps1",
     "scripts/windows/Prepare-WindowsRuntimeMedia.ps1",
     "scripts/windows/Install-DBGPTOffline.ps1",
     "scripts/windows/Register-DBGPTServices.ps1",
@@ -43,7 +44,14 @@ HASHED_FILES = {
     "tools/nssm.exe",
     "ollama/ollama.exe",
 }
-HASHED_PREFIXES = ("app-wheels/", "config/", "scripts/")
+HASHED_PREFIXES = ("app-wheels/", "config/", "metadata-template/", "scripts/")
+
+METADATA_TEMPLATE_FILES = (
+    "alembic.ini",
+    "alembic/README",
+    "alembic/env.py",
+    "alembic/script.py.mako",
+)
 
 
 def _files(root: Path) -> Iterable[Path]:
@@ -111,6 +119,7 @@ def build_release(args: argparse.Namespace) -> Path:
         (staging / "tools").mkdir()
         (staging / "config").mkdir()
         (staging / "scripts").mkdir()
+        (staging / "metadata-template").mkdir()
         shutil.copy2(
             args.python_installer, staging / "runtime" / "python-installer.exe"
         )
@@ -129,6 +138,15 @@ def build_release(args: argparse.Namespace) -> Path:
                 staging / "config" if source.suffix == ".toml" else staging / "scripts"
             )
             shutil.copy2(source, target_parent / source.name)
+
+        metadata_source = repository_root / "pilot" / "meta_data"
+        for relative in METADATA_TEMPLATE_FILES:
+            source = metadata_source / relative
+            if not source.is_file():
+                raise ValueError(f"Metadata template file is missing: {source}")
+            destination = staging / "metadata-template" / relative
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, destination)
 
         entries: List[Dict[str, object]] = []
         for path in _files(staging):

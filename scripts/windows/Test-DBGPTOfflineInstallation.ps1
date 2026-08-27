@@ -8,11 +8,14 @@ param(
     [string]$FallbackLlmModel = "qwen3.5:9b-q4_K_M",
     [string]$EmbeddingModel = "qwen3-embedding:0.6b",
     [string]$ExpectedOllamaVersion = "0.32.15",
+    [string]$OllamaServiceName = "HGTechOllama",
+    [string]$DBGPTServiceName = "HGTechDBGPT",
     [int]$WebPort = 5670,
     [int]$OllamaPort = 11434,
     [ValidateRange(1, 3600)]
     [int]$TimeoutSeconds = 600,
-    [switch]$RequirePhysicalNetworkDisconnected
+    [switch]$RequirePhysicalNetworkDisconnected,
+    [switch]$RequireProcessNetworkIsolation
 )
 
 $ErrorActionPreference = "Stop"
@@ -27,7 +30,8 @@ $scripts = Join-Path $install "scripts"
 foreach ($required in @(
     $python,
     (Join-Path $scripts "check_ollama_offline.py"),
-    (Join-Path $scripts "ollama_model_store.py")
+    (Join-Path $scripts "ollama_model_store.py"),
+    (Join-Path $install "metadata-template\alembic\env.py")
 )) {
     if (-not (Test-Path -LiteralPath $required -PathType Leaf)) {
         $errors.Add("Missing installed file: $required")
@@ -35,7 +39,7 @@ foreach ($required in @(
 }
 
 $serviceRunning = @{}
-foreach ($serviceName in @("HGTechOllama", "HGTechDBGPT")) {
+foreach ($serviceName in @($OllamaServiceName, $DBGPTServiceName)) {
     $service = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
     $running = $null -ne $service -and $service.Status -eq "Running"
     $serviceRunning[$serviceName] = $running
@@ -57,9 +61,35 @@ if ($RequirePhysicalNetworkDisconnected) {
     }
 }
 
+if ($RequireProcessNetworkIsolation) {
+    $isolationScript = Join-Path $scripts "Set-DBGPTProcessNetworkIsolation.ps1"
+    if (-not (Test-Path -LiteralPath $isolationScript -PathType Leaf)) {
+        $checks["processNetworkIsolation"] = $false
+        $errors.Add("Process network isolation script is missing")
+    }
+    else {
+        $isolationOutput = & $isolationScript -InstallRoot $install -Action Status
+        $isolationExitCode = $LASTEXITCODE
+        try {
+            $isolationReport = ($isolationOutput -join "`n") | ConvertFrom-Json
+            $details["processNetworkIsolation"] = $isolationReport
+            $isolationValid = $isolationExitCode -eq 0 -and `
+                $isolationReport.success
+            $checks["processNetworkIsolation"] = $isolationValid
+            if (-not $isolationValid) {
+                $errors.Add("Process network isolation is not active")
+            }
+        }
+        catch {
+            $checks["processNetworkIsolation"] = $false
+            $errors.Add("Process network isolation check returned invalid JSON")
+        }
+    }
+}
+
 foreach ($endpoint in @(
-    @{ Name = "web"; Service = "HGTechDBGPT"; Port = $WebPort; Url = "http://127.0.0.1:$WebPort/api/health" },
-    @{ Name = "ollama"; Service = "HGTechOllama"; Port = $OllamaPort; Url = "http://127.0.0.1:$OllamaPort/api/version" }
+    @{ Name = "web"; Service = $DBGPTServiceName; Port = $WebPort; Url = "http://127.0.0.1:$WebPort/api/health" },
+    @{ Name = "ollama"; Service = $OllamaServiceName; Port = $OllamaPort; Url = "http://127.0.0.1:$OllamaPort/api/version" }
 )) {
     if (-not $serviceRunning[$endpoint.Service]) {
         $checks["$($endpoint.Name)Reachable"] = $false
@@ -151,3 +181,4 @@ $report | ConvertTo-Json -Depth 10
 if ($errors.Count -ne 0) {
     exit 1
 }
+exit 0
