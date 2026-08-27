@@ -23,6 +23,7 @@ REQUIRED_MODULES = (
     "docx",
     "pypdf",
     "pdfplumber",
+    "tiktoken",
 )
 REQUIRED_STATIC_FILES = ("index.html", "ui-visibility.json")
 

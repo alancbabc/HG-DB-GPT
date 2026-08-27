@@ -50,9 +50,10 @@
 - DB-GPT、Ollama、模型、元数据库、向量库、上传文件、生成结果和日志使用明确的绝对路径。可变运行数据不得放在源码目录、Git 跟踪目录或升级时会被覆盖的位置。
 - 默认仅供本机浏览器使用时，Web 和 Ollama 应监听回环地址。若需要局域网访问，必须单独设计认证、授权、TLS、防火墙和访问审计。
 - DB-GPT 和 Ollama 应以 Windows 服务或等价的受控后台方式运行，具备开机启动、失败恢复、受控停止、日志轮转和健康检查。
-- 所有发布物应固定版本。哈希只用于发布包关键安装文件在制作和移动介质复制后的必要校验，不反复哈希模型、wheelhouse、日志、缓存和普通备份文件；升级前备份 DB-GPT 元数据库、向量数据、任务数据和用户文件，并验证回滚。
+- 所有发布物应固定版本。哈希只用于发布包关键安装文件在制作和移动介质复制后的必要校验，不反复哈希模型、wheelhouse、日志和普通备份文件；约1.6 MB的tokenizer运行资源属于关键安装文件，可随发布清单校验一次。升级前备份 DB-GPT 元数据库、向量数据、任务数据和用户文件，并验证回滚。
 - Windows第三方运行时已固定为Python 3.11.9 x64、Ollama 0.32.15、NSSM 2.24-101-g897c7ad和Microsoft Visual C++ x64 14.50.35719.0；版本更新必须先重新完成真实介质与断网验收。
 - Python离线介质使用 `scripts/windows/offline_media.py` 从当前工作区和 `uv.lock` 生成；组包前必须通过 `Test-OfflinePythonMedia.ps1` 的全新临时环境 `--no-index` 安装、`pip check` 和运行时自检。目标机不得接收sdist或现场编译依赖。
+- `cl100k_base` tokenizer缓存必须作为离线发布物安装到应用目录；Windows服务通过由安装路径计算出的绝对 `TIKTOKEN_CACHE_DIR` 使用它，不得依赖构建用户、操作员或服务账号的 `%TEMP%` 缓存。
 
 ## 本地模型与 Embedding 原则
 
@@ -65,11 +66,12 @@
 - 模型大小、量化、上下文长度、并发数和常驻时间必须根据产线 CPU、内存、GPU/显存和任务延迟要求实测确定；未经实测不承诺性能。
 - 禁止配置不可用的云端 fallback；离线环境中的模型不可用应快速失败并给出明确诊断。
 - 已确认主 LLM 为 `qwen3.5:27b-q4_K_M`，备用 LLM 为 `qwen3.5:9b-q4_K_M`，Embedding 为 `qwen3-embedding:0.6b`。干净断网测试机使用 RTX 5090，最终产线性能在 RTX 3090 24 GB 上复测。
-- 模型介质使用Ollama原生 `manifests` 与 `blobs` 仓库，发布前用 `ollama_model_store.py` 校验三个固定标签、blob存在性和大小，不对大模型重复计算哈希。产线Ollama设置 `OLLAMA_NO_CLOUD=1`，默认单模型、单路推理和8192上下文，只有3090实测通过后才能提高并发或上下文。
+- 模型介质使用Ollama原生 `manifests` 与 `blobs` 仓库，发布前用 `ollama_model_store.py` 校验三个固定标签、blob存在性和大小，不对大模型重复计算哈希。产线Ollama设置 `OLLAMA_NO_CLOUD=1`，默认单模型、单路推理；DB-GPT与Ollama上下文统一为16384，只有3090实测通过后才能提高并发或上下文。
 - 三个固定模型已在RTX 5090开发机完成真实下载与生成/Embedding接口验收；该结果只证明介质和调用链可用，不能替代RTX 3090产线机的显存、延迟和稳定性验收。
 - 本机断网验收不得关闭物理网卡或影响远程控制；使用仅绑定候选包Python、Ollama和llama-server路径的可回滚Windows防火墙规则阻断Internet，并将结果标记为进程级隔离验收。
 - 2026-08-27已在RTX 5090本机完成进程级Internet隔离安装验收：DB-GPT/Ollama服务、回环Web健康、27B/9B生成和1024维Embedding均通过；未关闭物理网络。该结果不替代干净系统物理断网验收，也不替代RTX 3090产线性能复测。
-- 第一份26.86GB完整候选离线发布目录已在准备机完成清单校验和两轮 `--no-index` Python安装自检；发布物不进入Git，仍需在干净Windows测试机完成物理断网全新安装后才能升级结论。
+- 2026-08-27已补齐服务账号专用的离线tokenizer缓存并在16384上下文下复验：缓存加载、27B/9B生成、Embedding及普通操作员权限下的回环监听检查全部通过；模型目录ACL仍保持普通用户不可读。
+- 当前Stage 18完整候选离线发布目录约25.02 GiB、清单330项，已在准备机完成清单校验、tokenizer离线加载和 `--no-index` Python全新安装自检；发布物不进入Git，仍需在干净Windows测试机完成物理断网全新安装后才能升级结论。
 - 干净测试机使用 `Test-DBGPTOfflineInstallation.ps1` 统一验收两个Windows服务、物理断网、回环监听、Web健康、模型仓库及三模型真实接口；准备机模拟或仅设置 `OLLAMA_NO_CLOUD=1` 不能替代该验收。
 
 ## 生产 SQLite 只读与并发原则

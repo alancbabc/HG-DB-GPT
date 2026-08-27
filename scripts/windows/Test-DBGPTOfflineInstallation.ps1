@@ -26,11 +26,14 @@ $install = (Resolve-Path -LiteralPath $InstallRoot).Path
 $models = (Resolve-Path -LiteralPath $ModelRoot).Path
 $python = Join-Path $install "python\python.exe"
 $scripts = Join-Path $install "scripts"
+$tiktokenCache = Join-Path $install "tiktoken-cache"
 
 foreach ($required in @(
     $python,
     (Join-Path $scripts "check_ollama_offline.py"),
+    (Join-Path $scripts "check_tiktoken_offline.py"),
     (Join-Path $scripts "ollama_model_store.py"),
+    (Join-Path $tiktokenCache "9b5ad71b2ce5302211f9c61530b329a4922fc6a4"),
     (Join-Path $install "metadata-template\alembic\env.py")
 )) {
     if (-not (Test-Path -LiteralPath $required -PathType Leaf)) {
@@ -121,6 +124,21 @@ foreach ($endpoint in @(
     }
     $listeners = @(Get-NetTCPConnection -State Listen -LocalPort $endpoint.Port `
         -ErrorAction SilentlyContinue)
+    if ($listeners.Count -eq 0) {
+        $listeners = @(& "$env:SystemRoot\System32\netstat.exe" -ano -p tcp | `
+            ForEach-Object {
+                if ($_ -match (
+                    "^\s*TCP\s+(\S+):" + $endpoint.Port +
+                    "\s+\S+\s+LISTENING\s+(\d+)\s*$"
+                )) {
+                    [pscustomobject]@{
+                        LocalAddress = $Matches[1].Trim("[", "]")
+                        LocalPort = $endpoint.Port
+                        OwningProcess = [int]$Matches[2]
+                    }
+                }
+            })
+    }
     $external = @($listeners | Where-Object {
         $_.LocalAddress -notin @("127.0.0.1", "::1")
     })
@@ -132,20 +150,50 @@ foreach ($endpoint in @(
 }
 
 if ($errors.Count -eq 0) {
-    $storeOutput = & $python (Join-Path $scripts "ollama_model_store.py") $models `
-        --required-model $MainLlmModel `
-        --required-model $FallbackLlmModel `
-        --required-model $EmbeddingModel
-    $storeExitCode = $LASTEXITCODE
+    $tiktokenOutput = & $python (Join-Path $scripts "check_tiktoken_offline.py") `
+        --cache-dir $tiktokenCache
+    $tiktokenExitCode = $LASTEXITCODE
     try {
-        $details["modelStore"] = ($storeOutput -join "`n") | ConvertFrom-Json
+        $details["tiktoken"] = ($tiktokenOutput -join "`n") | ConvertFrom-Json
     }
     catch {
-        $errors.Add("Model store check returned invalid JSON")
+        $errors.Add("Tokenizer offline check returned invalid JSON")
     }
-    $checks["modelStoreValid"] = $storeExitCode -eq 0
-    if ($storeExitCode -ne 0) {
-        $errors.Add("Model store validation failed")
+    $checks["tiktokenOffline"] = $tiktokenExitCode -eq 0
+    if ($tiktokenExitCode -ne 0) {
+        $errors.Add("Tokenizer offline validation failed")
+    }
+
+    $modelStoreReadable = $true
+    try {
+        $null = Get-ChildItem -LiteralPath (Join-Path $models "manifests") `
+            -ErrorAction Stop | Select-Object -First 1
+    }
+    catch {
+        $modelStoreReadable = $false
+    }
+    if ($modelStoreReadable) {
+        $storeOutput = & $python (Join-Path $scripts "ollama_model_store.py") $models `
+            --required-model $MainLlmModel `
+            --required-model $FallbackLlmModel `
+            --required-model $EmbeddingModel
+        $storeExitCode = $LASTEXITCODE
+        try {
+            $details["modelStore"] = ($storeOutput -join "`n") | ConvertFrom-Json
+        }
+        catch {
+            $errors.Add("Model store check returned invalid JSON")
+        }
+        $checks["modelStoreValid"] = $storeExitCode -eq 0
+        if ($storeExitCode -ne 0) {
+            $errors.Add("Model store validation failed")
+        }
+    }
+    else {
+        $checks["modelStoreProtectedFromOperator"] = $true
+        $details["modelStore"] = (
+            "Direct model-store read is denied by ACL; validating through Ollama API"
+        )
     }
 
     $ollamaOutput = & $python (Join-Path $scripts "check_ollama_offline.py") `

@@ -7,6 +7,10 @@ encrypt_key = "${env:DBGPT_ENCRYPT_KEY}"
 host = "127.0.0.1"
 port = 5670
 
+[service.web.agent_context]
+max_context_tokens = "${env:DBGPT_CONTEXT_LENGTH:-16384}"
+reserved_tokens = 4096
+
 [service.web.database]
 type = "sqlite"
 path = "${env:DBGPT_DATA_DIR}/metadata/dbgpt.db"
@@ -22,12 +26,14 @@ name = "${env:DBGPT_LLM_MODEL}"
 provider = "proxy/ollama"
 api_base = "http://127.0.0.1:11434"
 api_key = ""
+context_length = "${env:DBGPT_CONTEXT_LENGTH:-16384}"
 
 [[models.llms]]
 name = "${env:DBGPT_FALLBACK_LLM_MODEL}"
 provider = "proxy/ollama"
 api_base = "http://127.0.0.1:11434"
 api_key = ""
+context_length = "${env:DBGPT_CONTEXT_LENGTH:-16384}"
 
 [[models.embeddings]]
 name = "${env:DBGPT_EMBEDDING_MODEL}"

@@ -20,6 +20,7 @@ REQUIRED_REPOSITORY_FILES = (
     "configs/dbgpt-windows-offline-ollama.example.toml",
     "scripts/windows/check_installed_runtime.py",
     "scripts/windows/check_ollama_offline.py",
+    "scripts/windows/check_tiktoken_offline.py",
     "scripts/windows/ollama_model_store.py",
     "scripts/windows/collect-deployment-baseline.ps1",
     "scripts/windows/sqlite_concurrency_probe.py",
@@ -44,7 +45,18 @@ HASHED_FILES = {
     "tools/nssm.exe",
     "ollama/ollama.exe",
 }
-HASHED_PREFIXES = ("app-wheels/", "config/", "metadata-template/", "scripts/")
+HASHED_PREFIXES = (
+    "app-wheels/",
+    "config/",
+    "metadata-template/",
+    "scripts/",
+    "tiktoken-cache/",
+)
+
+TIKTOKEN_CACHE_FILENAME = "9b5ad71b2ce5302211f9c61530b329a4922fc6a4"
+TIKTOKEN_CACHE_SHA256 = (
+    "223921b76ee99bde995b7ff738513eef100fb51d18c93597a113bcffe865b2a7"
+)
 
 METADATA_TEMPLATE_FILES = (
     "alembic.ini",
@@ -78,7 +90,12 @@ def _copy_tree(source: Path, destination: Path) -> None:
 
 
 def _validate_inputs(args: argparse.Namespace) -> None:
-    for path in (args.python_installer, args.vc_redist, args.nssm_exe):
+    for path in (
+        args.python_installer,
+        args.vc_redist,
+        args.nssm_exe,
+        args.tiktoken_cache_file,
+    ):
         if not path.is_file():
             raise ValueError(f"Required file does not exist: {path}")
     for path in (
@@ -100,6 +117,10 @@ def _validate_inputs(args: argparse.Namespace) -> None:
         raise ValueError("app-wheels must contain DB-GPT wheel files")
     if not (args.ollama_dir / "ollama.exe").is_file():
         raise ValueError("ollama directory must contain ollama.exe")
+    if _sha256(args.tiktoken_cache_file) != TIKTOKEN_CACHE_SHA256:
+        raise ValueError(
+            "tiktoken cl100k_base cache file does not match the required artifact"
+        )
     model_report = inspect_model_store(args.models_dir)
     if not model_report["success"]:
         raise ValueError("; ".join(model_report["errors"]))
@@ -120,6 +141,7 @@ def build_release(args: argparse.Namespace) -> Path:
         (staging / "config").mkdir()
         (staging / "scripts").mkdir()
         (staging / "metadata-template").mkdir()
+        (staging / "tiktoken-cache").mkdir()
         shutil.copy2(
             args.python_installer, staging / "runtime" / "python-installer.exe"
         )
@@ -129,6 +151,10 @@ def build_release(args: argparse.Namespace) -> Path:
         _copy_tree(args.app_wheels, staging / "app-wheels")
         _copy_tree(args.ollama_dir, staging / "ollama")
         _copy_tree(args.models_dir, staging / "models")
+        shutil.copy2(
+            args.tiktoken_cache_file,
+            staging / "tiktoken-cache" / TIKTOKEN_CACHE_FILENAME,
+        )
 
         for relative in REQUIRED_REPOSITORY_FILES:
             source = repository_root / relative
@@ -226,6 +252,7 @@ def _parse_args() -> argparse.Namespace:
     build.add_argument("--ollama-dir", type=Path, required=True)
     build.add_argument("--models-dir", type=Path, required=True)
     build.add_argument("--nssm-exe", type=Path, required=True)
+    build.add_argument("--tiktoken-cache-file", type=Path, required=True)
     verify = subparsers.add_parser("verify")
     verify.add_argument("release_root", type=Path)
     return parser.parse_args()

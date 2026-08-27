@@ -1,10 +1,12 @@
 import argparse
+import hashlib
 import json
 import subprocess
 from pathlib import Path
 
 import pytest
 
+from scripts.windows import offline_release
 from scripts.windows.offline_release import build_release, verify_release
 
 
@@ -39,11 +41,17 @@ def _model_store(root: Path) -> None:
         )
 
 
-def test_build_verify_and_detect_tampering(tmp_path):
+def test_build_verify_and_detect_tampering(tmp_path, monkeypatch):
     inputs = tmp_path / "inputs"
     python_installer = _file(inputs / "python.exe")
     vc_redist = _file(inputs / "vc-redist.exe")
     nssm = _file(inputs / "nssm.exe")
+    tiktoken_cache = _file(inputs / "cl100k_base.cache", b"offline-cache")
+    monkeypatch.setattr(
+        offline_release,
+        "TIKTOKEN_CACHE_SHA256",
+        hashlib.sha256(tiktoken_cache.read_bytes()).hexdigest(),
+    )
     wheelhouse = inputs / "wheelhouse"
     app_wheels = inputs / "app-wheels"
     ollama = inputs / "ollama"
@@ -64,6 +72,7 @@ def test_build_verify_and_detect_tampering(tmp_path):
         ollama_dir=ollama,
         models_dir=models,
         nssm_exe=nssm,
+        tiktoken_cache_file=tiktoken_cache,
     )
 
     build_release(args)
@@ -78,10 +87,14 @@ def test_build_verify_and_detect_tampering(tmp_path):
     assert "sha256" not in entries["wheelhouse/dependency-1.0-py3-none-any.whl"]
     assert "sha256" in entries["scripts/Install-DBGPTOffline.ps1"]
     assert "sha256" in entries["runtime/vc-redist.x64.exe"]
+    assert "sha256" in entries[
+        f"tiktoken-cache/{offline_release.TIKTOKEN_CACHE_FILENAME}"
+    ]
     for relative in (
         "metadata-template/alembic.ini",
         "metadata-template/alembic/README",
         "metadata-template/alembic/env.py",
+        f"tiktoken-cache/{offline_release.TIKTOKEN_CACHE_FILENAME}",
         "metadata-template/alembic/script.py.mako",
     ):
         assert "sha256" in entries[relative]
@@ -119,13 +132,14 @@ def test_build_verify_and_detect_tampering(tmp_path):
     assert powershell.returncode == 0, powershell.stderr
     assert json.loads(powershell.stdout)["success"] is True
 
-    installed = tmp_path / "installed"
+    installed = tmp_path / "installed path with spaces"
     for relative in (
         "tools/nssm.exe",
         "ollama/ollama.exe",
         "python/Scripts/dbgpt.exe",
         "config/dbgpt-windows-offline-ollama.toml",
         "metadata-template/alembic/env.py",
+        f"tiktoken-cache/{offline_release.TIKTOKEN_CACHE_FILENAME}",
     ):
         _file(installed / relative)
     service_what_if = subprocess.run(
@@ -165,7 +179,7 @@ def test_build_verify_and_detect_tampering(tmp_path):
     assert any("mismatch" in error.lower() for error in tampered["errors"])
 
 
-def test_build_requires_ollama_python_wheel(tmp_path):
+def test_build_requires_ollama_python_wheel(tmp_path, monkeypatch):
     inputs = tmp_path / "inputs"
     args = argparse.Namespace(
         output=tmp_path / "release",
@@ -177,6 +191,12 @@ def test_build_requires_ollama_python_wheel(tmp_path):
         ollama_dir=inputs / "ollama",
         models_dir=inputs / "models",
         nssm_exe=_file(inputs / "nssm.exe"),
+        tiktoken_cache_file=_file(inputs / "cl100k_base.cache"),
+    )
+    monkeypatch.setattr(
+        offline_release,
+        "TIKTOKEN_CACHE_SHA256",
+        hashlib.sha256(args.tiktoken_cache_file.read_bytes()).hexdigest(),
     )
     _file(args.wheelhouse / "dependency-1.0-py3-none-any.whl")
     _file(args.app_wheels / "dbgpt_app-0.8.1-py3-none-any.whl")
@@ -192,6 +212,7 @@ def test_installer_explicitly_installs_ollama_and_runs_runtime_check():
 
     assert "@appWheels ollama" in installer
     assert "check_installed_runtime.py" in installer
+    assert 'Join-Path $release "tiktoken-cache"' in installer
     assert "vc-redist.x64.exe" in installer
     assert '"/install", "/quiet", "/norestart"' in installer
     assert "Windows restart is required before rerunning" in installer
@@ -231,6 +252,9 @@ def test_service_registration_checks_native_failures_and_protects_models():
     assert '"/reset"' in registration
     assert "PYTHONUTF8=1" in registration
     assert "PYTHONIOENCODING=utf-8" in registration
+    assert "TIKTOKEN_CACHE_DIR=$tiktokenCache" in registration
+    assert "DBGPT_CONTEXT_LENGTH=$ContextLength" in registration
+    assert "[int]$ContextLength = 16384" in registration
     assert 'Join-Path $install "metadata-template"' in registration
     assert "Copy-Item -LiteralPath $_.FullName" in registration
 
@@ -242,10 +266,13 @@ def test_installed_acceptance_checks_services_loopback_and_offline_models():
 
     assert "Get-Service" in acceptance
     assert "Get-NetTCPConnection" in acceptance
+    assert "netstat.exe" in acceptance
     assert "Get-NetAdapter -Physical" in acceptance
     assert 'response.status -eq "ok"' in acceptance
     assert "check_ollama_offline.py" in acceptance
+    assert "check_tiktoken_offline.py" in acceptance
     assert "ollama_model_store.py" in acceptance
+    assert "modelStoreProtectedFromOperator" in acceptance
     assert "RequireProcessNetworkIsolation" in acceptance
     assert "Set-DBGPTProcessNetworkIsolation.ps1" in acceptance
 
@@ -271,7 +298,9 @@ def test_installed_acceptance_fails_fast_when_services_are_missing(tmp_path):
     for relative in (
         "python/python.exe",
         "scripts/check_ollama_offline.py",
+        "scripts/check_tiktoken_offline.py",
         "scripts/ollama_model_store.py",
+        f"tiktoken-cache/{offline_release.TIKTOKEN_CACHE_FILENAME}",
         "metadata-template/alembic/env.py",
     ):
         _file(install / relative)
@@ -306,3 +335,13 @@ def test_installed_acceptance_fails_fast_when_services_are_missing(tmp_path):
     assert report["success"] is False
     assert report["checks"]["HGTechTestMissingOllamaRunning"] is False
     assert report["checks"]["HGTechTestMissingDBGPTRunning"] is False
+
+
+def test_offline_config_uses_one_context_length_setting():
+    config = Path("configs/dbgpt-windows-offline-ollama.example.toml").read_text(
+        "utf-8"
+    )
+
+    assert '[service.web.agent_context]' in config
+    assert 'max_context_tokens = "${env:DBGPT_CONTEXT_LENGTH:-16384}"' in config
+    assert config.count('context_length = "${env:DBGPT_CONTEXT_LENGTH:-16384}"') == 2

@@ -116,6 +116,8 @@ Copy-Item -LiteralPath (Join-Path $release "scripts") `
     -Destination (Join-Path $InstallRoot "scripts") -Recurse
 Copy-Item -LiteralPath (Join-Path $release "metadata-template") `
     -Destination (Join-Path $InstallRoot "metadata-template") -Recurse
+Copy-Item -LiteralPath (Join-Path $release "tiktoken-cache") `
+    -Destination (Join-Path $InstallRoot "tiktoken-cache") -Recurse
 Copy-Item -Path (Join-Path $release "models\*") `
     -Destination $ModelRoot -Recurse
 & $python (Join-Path $InstallRoot "scripts\ollama_model_store.py") $ModelRoot

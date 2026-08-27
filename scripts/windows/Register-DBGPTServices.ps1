@@ -10,7 +10,7 @@ param(
     [string]$FallbackLlmModel = "qwen3.5:9b-q4_K_M",
     [string]$EmbeddingModel = "qwen3-embedding:0.6b",
     [ValidateRange(2048, 131072)]
-    [int]$ContextLength = 8192
+    [int]$ContextLength = 16384
 )
 
 $ErrorActionPreference = "Stop"
@@ -36,7 +36,9 @@ $ollama = Join-Path $install "ollama\ollama.exe"
 $dbgpt = Join-Path $install "python\Scripts\dbgpt.exe"
 $config = Join-Path $install "config\dbgpt-windows-offline-ollama.toml"
 $metadataTemplate = Join-Path $install "metadata-template"
-foreach ($required in ($nssm, $ollama, $dbgpt, $config)) {
+$tiktokenCache = Join-Path $install "tiktoken-cache"
+$tiktokenCacheFile = Join-Path $tiktokenCache "9b5ad71b2ce5302211f9c61530b329a4922fc6a4"
+foreach ($required in ($nssm, $ollama, $dbgpt, $config, $tiktokenCacheFile)) {
     if (-not (Test-Path -LiteralPath $required -PathType Leaf)) {
         throw "Required installed file is missing: $required"
     }
@@ -161,6 +163,7 @@ Invoke-NativeCommand $nssm @(
     "DBGPT_DATA_DIR=$DataRoot", "DBGPT_LLM_MODEL=$LlmModel",
     "DBGPT_FALLBACK_LLM_MODEL=$FallbackLlmModel",
     "DBGPT_EMBEDDING_MODEL=$EmbeddingModel", "DBGPT_ENCRYPT_KEY=$encryptKey",
+    "DBGPT_CONTEXT_LENGTH=$ContextLength", "TIKTOKEN_CACHE_DIR=$tiktokenCache",
     "PYTHONUTF8=1", "PYTHONIOENCODING=utf-8"
 ) "Set the DB-GPT environment"
 Invoke-NativeCommand $nssm @(
