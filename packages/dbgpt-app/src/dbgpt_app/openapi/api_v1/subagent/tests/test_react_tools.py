@@ -109,6 +109,24 @@ def test_sql_query_blocks_non_select():
 
 
 @pytest.mark.asyncio
+async def test_html_interpreter_rejects_remote_resources_for_subagents():
+    tools = make_react_tools({"conv_id": "offline-subagent"})
+
+    out = await tools["html_interpreter"](
+        html=(
+            "<!doctype html><html><head>"
+            '<script src="https://cdn.jsdelivr.net/npm/echarts/dist/'
+            'echarts.min.js"></script>'
+            "</head><body></body></html>"
+        )
+    )
+    parsed = json.loads(out)
+
+    assert parsed["is_exe_success"] is False
+    assert "cdn.jsdelivr.net" in parsed["error"]
+
+
+@pytest.mark.asyncio
 async def test_knowledge_retrieve_degrades_when_no_resource():
     tools = make_react_tools({"conv_id": "c1"}, knowledge_resources=None)
     out = await tools["knowledge_retrieve"](query="q")

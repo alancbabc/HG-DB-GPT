@@ -36,6 +36,8 @@ from dbgpt.agent.resource.manage import get_resource_manager
 from dbgpt.agent.resource.tool.base import tool
 from dbgpt.configs.model_config import SKILLS_DIR
 
+from ..tools.html_interpreter import _external_resource_error, _json_result
+
 CFG = Config()
 logger = logging.getLogger(__name__)
 
@@ -990,6 +992,8 @@ def make_react_tools(
         "HTML 可以很长，没有长度限制，不需要分段传入；"
         "若报告含多部分内容，请合并进【同一份】HTML 一次性渲染，"
         "不要分多次生成多份报告。"
+        "【离线要求】HTML 必须完全自包含，禁止 CDN、在线字体或任何 http(s)"
+        "外部资源；图表使用内联 SVG、Canvas 和内联 JavaScript/CSS 实现。"
         "【禁止】不要用 code_interpreter 写 HTML 再 print，"
         "不要用 code_interpreter 把 HTML 写入文件再读取，"
         "直接把 HTML 传给本工具即可。"
@@ -1321,6 +1325,14 @@ def make_react_tools(
         except Exception:
             pass
 
+        error = _external_resource_error(fixed_html)
+        if error:
+            return _json_result(
+                [{"output_type": "text", "content": error}],
+                success=False,
+                error=error,
+            )
+
         # A leading text chunk gives the ReAct LLM an explicit success signal.
         # Without it the observation is just the raw HTML source, which the model
         # cannot tell apart from "not done yet" and tends to re-render a second
@@ -1337,7 +1349,7 @@ def make_react_tools(
             },
             {"output_type": "html", "content": fixed_html, "title": title},
         ]
-        return json.dumps({"chunks": chunks}, ensure_ascii=False)
+        return _json_result(chunks, success=True)
 
     return {
         "load_skill": load_skill,

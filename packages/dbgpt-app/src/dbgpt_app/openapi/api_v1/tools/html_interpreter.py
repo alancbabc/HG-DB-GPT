@@ -6,10 +6,80 @@ import os
 import re
 from pathlib import Path
 from typing import Any, Dict, List
+from urllib.parse import urlsplit
 
 from dbgpt.agent.resource.tool.base import tool
 
 logger = logging.getLogger(__name__)
+
+
+_REMOTE_RESOURCE_PATTERNS = (
+    re.compile(
+        r"<(?:script|img|iframe|source|audio|video)\b[^>]*?"
+        r"(?:src|poster)\s*=\s*['\"]((?:https?:)?//[^'\"]+)['\"]",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"<link\b[^>]*?href\s*=\s*['\"]((?:https?:)?//[^'\"]+)['\"]",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"(?:url\(|@import\s+(?:url\()?)\s*['\"]?"
+        r"((?:https?:)?//[^'\"\s)]+)",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"(?:fetch|importScripts)\s*\(\s*['\"]"
+        r"((?:https?:)?//[^'\"]+)['\"]",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"new\s+(?:WebSocket|EventSource)\s*\(\s*['\"]"
+        r"((?:https?:)?//[^'\"]+)['\"]",
+        re.IGNORECASE,
+    ),
+)
+
+
+def _find_remote_runtime_resources(html: str) -> List[str]:
+    """Return remote URLs that the rendered report would load automatically."""
+    urls: List[str] = []
+    for pattern in _REMOTE_RESOURCE_PATTERNS:
+        for match in pattern.finditer(html):
+            url = match.group(1)
+            if url not in urls:
+                urls.append(url)
+    return urls
+
+
+def _external_resource_error(html: str) -> str | None:
+    remote_resources = _find_remote_runtime_resources(html)
+    if not remote_resources:
+        return None
+    hosts = []
+    for url in remote_resources:
+        parsed = urlsplit(url if not url.startswith("//") else f"https:{url}")
+        host = parsed.netloc or url
+        if host not in hosts:
+            hosts.append(host)
+    return (
+        "HTML report references external network resource(s): "
+        f"{', '.join(hosts)}. Regenerate a fully self-contained report using "
+        "only inline CSS, inline JavaScript, inline SVG/canvas, data: URLs, "
+        "or DB-GPT local paths. Do not use CDN resources."
+    )
+
+
+def _json_result(
+    chunks: List[Dict[str, Any]],
+    *,
+    success: bool,
+    error: str | None = None,
+) -> str:
+    result: Dict[str, Any] = {"is_exe_success": success, "chunks": chunks}
+    if error:
+        result["error"] = error
+    return json.dumps(result, ensure_ascii=False)
 
 
 def make_html_interpreter(react_state: Dict[str, Any], skills_dir: str):
@@ -26,6 +96,8 @@ def make_html_interpreter(react_state: Dict[str, Any], skills_dir: str):
             "HTML 可以很长，没有长度限制，不需要分段传入；"
             "若报告含多部分内容，请合并进【同一份】HTML 一次性渲染，"
             "不要分多次生成多份报告。"
+            "【离线要求】HTML 必须完全自包含，禁止 CDN、在线字体或任何 http(s)"
+            "外部资源；图表使用内联 SVG、Canvas 和内联 JavaScript/CSS 实现。"
             "【禁止】不要用 code_interpreter 写 HTML 再 print，"
             "不要用 code_interpreter 把 HTML 写入文件再读取，"
             "直接把 HTML 传给本工具即可。"
@@ -55,48 +127,32 @@ def make_html_interpreter(react_state: Dict[str, Any], skills_dir: str):
             try:
                 target.relative_to(skills_path)
             except ValueError:
-                return json.dumps(
-                    {
-                        "chunks": [
-                            {
-                                "output_type": "text",
-                                "content": f"Invalid template_path: {tp}",
-                            }
-                        ]
-                    },
-                    ensure_ascii=False,
+                error = f"Invalid template_path: {tp}"
+                return _json_result(
+                    [{"output_type": "text", "content": error}],
+                    success=False,
+                    error=error,
                 )
             if not target.is_file():
-                return json.dumps(
-                    {
-                        "chunks": [
-                            {
-                                "output_type": "text",
-                                "content": (
-                                    f"Template not found: {tp}. "
-                                    "Please retry using the `html` parameter "
-                                    "directly — "
-                                    "generate complete HTML yourself and pass it via "
-                                    '{"html": "<html>...</html>", "title": "title"}.'
-                                ),
-                            }
-                        ]
-                    },
-                    ensure_ascii=False,
+                error = (
+                    f"Template not found: {tp}. "
+                    "Please retry using the `html` parameter directly — "
+                    "generate complete HTML yourself and pass it via "
+                    '{"html": "<html>...</html>", "title": "title"}.'
+                )
+                return _json_result(
+                    [{"output_type": "text", "content": error}],
+                    success=False,
+                    error=error,
                 )
             try:
                 raw_template = target.read_text(encoding="utf-8")
             except Exception as e:
-                return json.dumps(
-                    {
-                        "chunks": [
-                            {
-                                "output_type": "text",
-                                "content": f"Error reading template: {e}",
-                            }
-                        ]
-                    },
-                    ensure_ascii=False,
+                error = f"Error reading template: {e}"
+                return _json_result(
+                    [{"output_type": "text", "content": error}],
+                    success=False,
+                    error=error,
                 )
 
             replacements = data
@@ -148,16 +204,11 @@ def make_html_interpreter(react_state: Dict[str, Any], skills_dir: str):
                 if os.path.isfile(alt):
                     fp = alt
                 else:
-                    return json.dumps(
-                        {
-                            "chunks": [
-                                {
-                                    "output_type": "text",
-                                    "content": f"File not found: {file_path}",
-                                }
-                            ]
-                        },
-                        ensure_ascii=False,
+                    error = f"File not found: {file_path}"
+                    return _json_result(
+                        [{"output_type": "text", "content": error}],
+                        success=False,
+                        error=error,
                     )
             try:
                 with open(fp, "r", encoding="utf-8") as f:
@@ -165,16 +216,11 @@ def make_html_interpreter(react_state: Dict[str, Any], skills_dir: str):
                 if not title or title == "Report":
                     title = os.path.splitext(os.path.basename(fp))[0]
             except Exception as e:
-                return json.dumps(
-                    {
-                        "chunks": [
-                            {
-                                "output_type": "text",
-                                "content": f"Error reading file: {e}",
-                            }
-                        ]
-                    },
-                    ensure_ascii=False,
+                error = f"Error reading file: {e}"
+                return _json_result(
+                    [{"output_type": "text", "content": error}],
+                    success=False,
+                    error=error,
                 )
 
         # ── Mode 3: inline html ──
@@ -185,13 +231,11 @@ def make_html_interpreter(react_state: Dict[str, Any], skills_dir: str):
                 html = html.replace("\\t", "\t")
 
         if not html or not html.strip():
-            return json.dumps(
-                {
-                    "chunks": [
-                        {"output_type": "text", "content": "No HTML content provided"}
-                    ]
-                },
-                ensure_ascii=False,
+            error = "No HTML content provided"
+            return _json_result(
+                [{"output_type": "text", "content": error}],
+                success=False,
+                error=error,
             )
 
         # Post-process: fix image URLs
@@ -274,6 +318,14 @@ def make_html_interpreter(react_state: Dict[str, Any], skills_dir: str):
         except Exception:
             pass
 
+        error = _external_resource_error(fixed_html)
+        if error:
+            return _json_result(
+                [{"output_type": "text", "content": error}],
+                success=False,
+                error=error,
+            )
+
         chunks: List[Dict[str, Any]] = [
             {
                 "output_type": "text",
@@ -285,6 +337,6 @@ def make_html_interpreter(react_state: Dict[str, Any], skills_dir: str):
             },
             {"output_type": "html", "content": fixed_html, "title": title},
         ]
-        return json.dumps({"chunks": chunks}, ensure_ascii=False)
+        return _json_result(chunks, success=True)
 
     return html_interpreter
