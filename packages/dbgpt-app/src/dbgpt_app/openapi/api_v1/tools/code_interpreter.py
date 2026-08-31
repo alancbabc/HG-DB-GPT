@@ -110,6 +110,9 @@ def make_code_interpreter(react_state: Dict[str, Any]):
             "Supports pandas, numpy, matplotlib, json, os, etc. "
             "Use this tool when you need to run Python code to process data, "
             "generate charts, or perform calculations. "
+            "Every call runs in a new Python process: variables and imports do NOT "
+            "persist between calls. Each call must be self-contained and must "
+            "recreate or reload every value it uses. "
             'Parameters: {{"code": "python code string"}}'
         )
     )
@@ -124,7 +127,13 @@ def make_code_interpreter(react_state: Dict[str, Any]):
 
         if not code or not code.strip():
             return json.dumps(
-                {"chunks": [{"output_type": "text", "content": "No code provided"}]},
+                {
+                    "is_exe_success": False,
+                    "error": "No code provided",
+                    "chunks": [
+                        {"output_type": "text", "content": "No code provided"}
+                    ],
+                },
                 ensure_ascii=False,
             )
 
@@ -175,6 +184,8 @@ def make_code_interpreter(react_state: Dict[str, Any]):
                 )
                 return json.dumps(
                     {
+                        "is_exe_success": False,
+                        "error": error_msg,
                         "chunks": [
                             {"output_type": "code", "content": code.strip()},
                             {"output_type": "text", "content": error_msg},
@@ -184,6 +195,8 @@ def make_code_interpreter(react_state: Dict[str, Any]):
                 )
 
         output_text = ""
+        execution_success = True
+        execution_error: Optional[str] = None
         try:
             tmp_path = os.path.join(work_dir, "_run.py")
             with open(tmp_path, "w", encoding="utf-8") as tmp:
@@ -207,14 +220,22 @@ def make_code_interpreter(react_state: Dict[str, Any]):
                 output_text = (
                     f"Execution timed out ({EXECUTION_TIMEOUT_SECONDS}s limit)"
                 )
-            elif returncode and error_text:
+                execution_success = False
+                execution_error = output_text
+            elif returncode:
+                execution_success = False
+                execution_error = error_text.strip() or (
+                    f"Python exited with status {returncode}."
+                )
                 output_text = (
-                    output_text + "\n[ERROR]\n" + error_text
+                    output_text + "\n[ERROR]\n" + execution_error
                     if output_text
-                    else error_text
+                    else execution_error
                 )
         except Exception as e:
             output_text = f"Execution error: {e}"
+            execution_success = False
+            execution_error = output_text
 
         chunks: List[Dict[str, Any]] = [
             {"output_type": "code", "content": code.strip()},
@@ -274,6 +295,12 @@ def make_code_interpreter(react_state: Dict[str, Any]):
             )
             chunks.append({"output_type": "text", "content": img_summary})
 
-        return json.dumps({"chunks": chunks}, ensure_ascii=False)
+        result: Dict[str, Any] = {
+            "is_exe_success": execution_success,
+            "chunks": chunks,
+        }
+        if execution_error:
+            result["error"] = execution_error
+        return json.dumps(result, ensure_ascii=False)
 
     return code_interpreter

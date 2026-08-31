@@ -2644,7 +2644,11 @@ The Action Input format must be {{"result": "final answer"}}.
 HTML report, or interactive report, the final presentation step must call
 `html_interpreter` to render it. It is forbidden to output HTML using only
 `code_interpreter` and then directly terminate. Correct process: code_interpreter
-writes to .html file -> html_interpreter(file_path=...) renders -> terminate.**
+writes to .html file -> html_interpreter(file_path=...) renders -> terminate.
+Every code_interpreter call starts a new Python process and shares no variables
+with earlier calls. A report-writing call must therefore be self-contained: define
+or reload all data and write the HTML in that same call. Never prepare variables in
+one code_interpreter call and consume them in a later call.**
 
 ## Task Management
 For complex tasks that require 3 or more steps, use the `todowrite` tool to create
@@ -2721,6 +2725,9 @@ Parameters: {{"skill_name": "skill name", "script_name": "script name",
 Parameters: {{"code": "shell command"}}
 6. **code_interpreter**: Execute arbitrary Python code.
 Parameters: {{"code": "python code string"}}
+   - Every call runs in a new Python process. Variables and imports never persist
+between calls.
+   - Each call must be self-contained and recreate or reload every value it uses.
 7. **load_file**: Load uploaded file info. Parameters: none.
 8. **execute_analysis**: Execute quick analysis on uploaded Excel/CSV file.
 Parameters: none.

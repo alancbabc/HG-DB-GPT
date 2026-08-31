@@ -2,7 +2,8 @@
 
 import json
 import logging
-from typing import Optional
+from collections.abc import Mapping
+from typing import Any, Optional, Tuple
 
 from dbgpt._private.pydantic import BaseModel, Field
 from dbgpt.vis.tags.vis_plugin import Vis, VisPlugin
@@ -14,6 +15,31 @@ from ...resource.base import AgentResource, Resource, ResourceType
 from ...resource.tool.pack import ToolPack
 
 logger = logging.getLogger(__name__)
+
+
+def _declared_tool_execution_status(
+    tool_result: Any,
+) -> Tuple[Optional[bool], Optional[str]]:
+    """Read an explicit execution status from a structured tool result.
+
+    Most tools return ordinary text and keep the historical behavior: returning
+    normally means success. Execution tools can return a JSON object containing
+    ``is_exe_success`` so a child-process failure is not mistaken for a successful
+    tool invocation merely because its traceback was serialized as text.
+    """
+    payload = tool_result
+    if isinstance(tool_result, str):
+        try:
+            payload = json.loads(tool_result)
+        except (TypeError, ValueError):
+            return None, None
+    if not isinstance(payload, Mapping):
+        return None, None
+    declared_status = payload.get("is_exe_success")
+    if not isinstance(declared_status, bool):
+        return None, None
+    error = payload.get("error")
+    return declared_status, str(error) if error else None
 
 
 class ToolInput(BaseModel):
@@ -190,8 +216,16 @@ async def run_tool(
 
         try:
             tool_result = await tool_pack.async_execute(resource_name=name, **args)
-            status = Status.COMPLETE.value
             is_terminal = tool_pack.is_terminal(name)
+            declared_success, declared_error = _declared_tool_execution_status(
+                tool_result
+            )
+            if declared_success is False:
+                response_success = False
+                status = Status.FAILED.value
+                err_msg = declared_error or f"Tool [{name}] reported execution failure."
+            else:
+                status = Status.COMPLETE.value
         except Exception as e:
             response_success = False
             logger.exception(f"Tool [{name}] execute failed!")

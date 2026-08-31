@@ -606,9 +606,12 @@ async def test_code_interpreter_propagates_file_context_only_through_env(
     )
     tool = code_interpreter_module.make_code_interpreter(state)
 
-    chunks = _chunks(await tool(code="print('env boundary')"))
+    result = await tool(code="print('env boundary')")
+    payload_data = json.loads(result)
+    chunks = payload_data["chunks"]
 
     assert len(seam.calls) == 1
+    assert payload_data["is_exe_success"] is True
     call = seam.calls[0]
     assert call["env"]["FILE_PATH"] == hostile_path
     assert call["env"]["FILES_JSON"] == str(files_json)
@@ -658,9 +661,12 @@ async def test_code_interpreter_without_files_uses_env_for_plot_dir_only(
     )
     tool = code_interpreter_module.make_code_interpreter({"conv_id": "plain-conv"})
 
-    chunks = _chunks(await tool(code="print(42)"))
+    result = await tool(code="print(42)")
+    payload_data = json.loads(result)
+    chunks = payload_data["chunks"]
 
     call = seam.calls[0]
+    assert payload_data["is_exe_success"] is True
     assert call["env"]["PLOT_DIR"] == call["cwd"]
     assert "FILE_PATH" not in call["env"]
     assert "FILES_JSON" not in call["env"]
@@ -696,13 +702,74 @@ async def test_code_interpreter_timeout_surfaces_timeout_message(tmp_path, monke
     )
     tool = code_interpreter_module.make_code_interpreter({"conv_id": "conv-timeout"})
 
-    chunks = _chunks(await tool(code="while True: pass"))
+    result = await tool(code="while True: pass")
+    payload_data = json.loads(result)
+    chunks = payload_data["chunks"]
 
     assert len(seam.calls) == 1
+    assert payload_data["is_exe_success"] is False
     text = _text(chunks)
     assert "Execution timed out (60s limit)" in text
     assert "(no output" not in text
     assert str(tmp_path) not in json.dumps(chunks, ensure_ascii=False)
+
+
+@pytest.mark.asyncio
+async def test_code_interpreter_nonzero_exit_is_a_failed_tool_result(
+    tmp_path, monkeypatch
+):
+    class Seam:
+        async def __call__(self, script_path, *, cwd, env, timeout=60):
+            return (
+                1,
+                b"",
+                b"Traceback (most recent call last):\n"
+                b'NameError: name "x" is not defined\n',
+            )
+
+    monkeypatch.setattr(code_interpreter_module, "_run_python_file", Seam())
+    monkeypatch.setattr(
+        "dbgpt.configs.model_config.PILOT_PATH",
+        str(tmp_path / "pilot-root"),
+    )
+    monkeypatch.setattr(
+        "dbgpt.configs.model_config.STATIC_MESSAGE_IMG_PATH",
+        str(tmp_path / "static-images"),
+    )
+    tool = code_interpreter_module.make_code_interpreter({"conv_id": "conv-error"})
+
+    result = await tool(code="print(x)")
+    payload_data = json.loads(result)
+
+    assert payload_data["is_exe_success"] is False
+    assert "NameError" in _text(payload_data["chunks"])
+
+
+@pytest.mark.asyncio
+async def test_code_interpreter_calls_do_not_share_report_variables(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(
+        "dbgpt.configs.model_config.PILOT_PATH",
+        str(tmp_path / "pilot-root"),
+    )
+    monkeypatch.setattr(
+        "dbgpt.configs.model_config.STATIC_MESSAGE_IMG_PATH",
+        str(tmp_path / "static-images"),
+    )
+    tool = code_interpreter_module.make_code_interpreter(
+        {"conv_id": "conv-independent"}
+    )
+
+    first = json.loads(
+        await tool(code="report_data = {'total': 1}\nprint('prepared')")
+    )
+    second = json.loads(await tool(code="print(report_data['total'])"))
+
+    assert first["is_exe_success"] is True
+    assert "prepared" in _text(first["chunks"])
+    assert second["is_exe_success"] is False
+    assert "NameError" in _text(second["chunks"])
 
 
 # ---------------------------------------------------------------------------
