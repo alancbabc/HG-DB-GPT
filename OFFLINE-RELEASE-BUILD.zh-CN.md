@@ -1,7 +1,7 @@
 # 从远程仓库制作 Windows 离线包
 
-> 适用仓库：<https://github.com/alancbabc/HG-DB-GPT>  
-> 当前基线：`dev_deploy`  
+> 适用仓库：<https://github.com/alancbabc/HG-DB-GPT><br>
+> 当前基线：`dev_deploy`<br>
 > 当前已验收发布：`offline-stage21.4` / `ab38e7ff`
 
 ## 1. 先说明结论
