@@ -3,13 +3,14 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$InstallRoot,
     [Parameter(Mandatory = $true)]
+    [string]$DataRoot,
+    [Parameter(Mandatory = $true)]
     [string]$ModelRoot,
     [string]$MainLlmModel = "qwen3.5:27b-q4_K_M",
     [string]$FallbackLlmModel = "qwen3.5:9b-q4_K_M",
     [string]$EmbeddingModel = "qwen3-embedding:0.6b",
     [string]$ExpectedOllamaVersion = "0.32.15",
     [string]$OllamaServiceName = "HGTechOllama",
-    [string]$DBGPTServiceName = "HGTechDBGPT",
     [int]$WebPort = 5670,
     [int]$OllamaPort = 11434,
     [ValidateRange(1, 3600)]
@@ -23,16 +24,22 @@ $errors = [System.Collections.Generic.List[string]]::new()
 $checks = [ordered]@{}
 $details = [ordered]@{}
 $install = (Resolve-Path -LiteralPath $InstallRoot).Path
+$data = (Resolve-Path -LiteralPath $DataRoot).Path
 $models = (Resolve-Path -LiteralPath $ModelRoot).Path
 $python = Join-Path $install "python\python.exe"
 $scripts = Join-Path $install "scripts"
 $tiktokenCache = Join-Path $install "tiktoken-cache"
+$desktop = [Environment]::GetFolderPath([Environment+SpecialFolder]::DesktopDirectory)
+$startShortcutName = "$([char]0x542f)$([char]0x52a8) DB-GPT.lnk"
+$stopShortcutName = "$([char]0x505c)$([char]0x6b62) DB-GPT.lnk"
 
 foreach ($required in @(
     $python,
     (Join-Path $scripts "check_ollama_offline.py"),
     (Join-Path $scripts "check_tiktoken_offline.py"),
     (Join-Path $scripts "ollama_model_store.py"),
+    (Join-Path $scripts "Start-DBGPT.ps1"),
+    (Join-Path $scripts "Stop-DBGPT.ps1"),
     (Join-Path $tiktokenCache "9b5ad71b2ce5302211f9c61530b329a4922fc6a4"),
     (Join-Path $install "metadata-template\alembic\env.py")
 )) {
@@ -41,16 +48,98 @@ foreach ($required in @(
     }
 }
 
-$serviceRunning = @{}
-foreach ($serviceName in @($OllamaServiceName, $DBGPTServiceName)) {
-    $service = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
-    $running = $null -ne $service -and $service.Status -eq "Running"
-    $serviceRunning[$serviceName] = $running
-    $checks["${serviceName}Running"] = $running
-    if (-not $running) {
-        $status = if ($null -eq $service) { "missing" } else { $service.Status }
-        $errors.Add("Service is not running: $serviceName ($status)")
+$startShortcutInstalled = Test-Path -LiteralPath (
+    Join-Path $desktop $startShortcutName
+) -PathType Leaf
+$stopShortcutInstalled = Test-Path -LiteralPath (
+    Join-Path $desktop $stopShortcutName
+) -PathType Leaf
+$checks["startShortcutInstalled"] = $startShortcutInstalled
+$checks["stopShortcutInstalled"] = $stopShortcutInstalled
+if (-not $startShortcutInstalled -or -not $stopShortcutInstalled) {
+    $errors.Add("DB-GPT desktop shortcuts are missing for the current Windows user")
+}
+
+$ollamaService = Get-Service -Name $OllamaServiceName -ErrorAction SilentlyContinue
+$ollamaRunning = $null -ne $ollamaService -and $ollamaService.Status -eq "Running"
+$checks["${OllamaServiceName}Running"] = $ollamaRunning
+if (-not $ollamaRunning) {
+    $status = if ($null -eq $ollamaService) { "missing" } else { $ollamaService.Status }
+    $errors.Add("Service is not running: $OllamaServiceName ($status)")
+}
+
+$legacyService = Get-Service -Name "HGTechDBGPT" -ErrorAction SilentlyContinue
+$legacyServiceInactive = $null -eq $legacyService -or $legacyService.Status -eq "Stopped"
+$checks["legacyDBGPTServiceInactive"] = $legacyServiceInactive
+if (-not $legacyServiceInactive) {
+    $errors.Add("Legacy HGTechDBGPT LocalService instance is still running")
+}
+
+$pidPath = Join-Path $data "run\dbgpt.pid"
+$statePath = Join-Path $data "run\dbgpt-process.json"
+$dbgptRunning = $false
+$dbgptRunsAsCurrentUser = $false
+$dbgptPid = $null
+$recordedState = $null
+if (Test-Path -LiteralPath $pidPath -PathType Leaf) {
+    $parsedPid = 0
+    if ([int]::TryParse((Get-Content -LiteralPath $pidPath -Raw).Trim(), [ref]$parsedPid)) {
+        $dbgptPid = $parsedPid
+        $dbgptProcess = Get-Process -Id $parsedPid -ErrorAction SilentlyContinue
+        $dbgptRunning = $null -ne $dbgptProcess
+        if ($dbgptRunning) {
+            if (Test-Path -LiteralPath $statePath -PathType Leaf) {
+                try {
+                    $recordedState = Get-Content -LiteralPath $statePath -Raw | `
+                        ConvertFrom-Json
+                }
+                catch {
+                    $recordedState = $null
+                }
+            }
+            $stateMatchesProcess = $null -ne $recordedState -and `
+                [int]$recordedState.pid -eq $parsedPid -and `
+                $recordedState.installRoot -eq $install -and `
+                $recordedState.dataRoot -eq $data -and `
+                -not [string]::IsNullOrWhiteSpace($recordedState.user) -and `
+                $recordedState.user -notin @(
+                    "NT AUTHORITY\LOCAL SERVICE",
+                    "NT AUTHORITY\SYSTEM"
+                )
+            if ($null -ne $recordedState) {
+                $details["dbgptRecordedOwner"] = $recordedState.user
+            }
+            try {
+                $processInfo = Get-CimInstance Win32_Process -Filter "ProcessId=$parsedPid"
+                $owner = Invoke-CimMethod -InputObject $processInfo -MethodName GetOwner
+                $actualOwner = "$($owner.Domain)\$($owner.User)"
+                $dbgptRunsAsCurrentUser = $stateMatchesProcess -and `
+                    $actualOwner -ieq $recordedState.user
+                $details["dbgptProcessOwner"] = $actualOwner
+            }
+            catch {
+                $details["dbgptProcessOwner"] = if ($null -eq $recordedState) {
+                    $null
+                } else {
+                    $recordedState.user
+                }
+                $details["dbgptOwnerVerification"] = (
+                    "CIM owner lookup unavailable; validated launcher state, PID, " +
+                    "installation and non-service account"
+                )
+                $dbgptRunsAsCurrentUser = $stateMatchesProcess
+            }
+        }
     }
+}
+$checks["dbgptProcessRunning"] = $dbgptRunning
+$checks["dbgptRunsAsCurrentUser"] = $dbgptRunsAsCurrentUser
+$details["dbgptPid"] = $dbgptPid
+if (-not $dbgptRunning) {
+    $errors.Add("Current-user DB-GPT process is not running")
+}
+elseif (-not $dbgptRunsAsCurrentUser) {
+    $errors.Add("DB-GPT is not running as the current Windows user")
 }
 
 if ($RequirePhysicalNetworkDisconnected) {
@@ -91,10 +180,10 @@ if ($RequireProcessNetworkIsolation) {
 }
 
 foreach ($endpoint in @(
-    @{ Name = "web"; Service = $DBGPTServiceName; Port = $WebPort; Url = "http://127.0.0.1:$WebPort/api/health" },
-    @{ Name = "ollama"; Service = $OllamaServiceName; Port = $OllamaPort; Url = "http://127.0.0.1:$OllamaPort/api/version" }
+    @{ Name = "web"; RequiredProcessRunning = $dbgptRunning; Port = $WebPort; Url = "http://127.0.0.1:$WebPort/api/health" },
+    @{ Name = "ollama"; RequiredProcessRunning = $ollamaRunning; Port = $OllamaPort; Url = "http://127.0.0.1:$OllamaPort/api/version" }
 )) {
-    if (-not $serviceRunning[$endpoint.Service]) {
+    if (-not $endpoint.RequiredProcessRunning) {
         $checks["$($endpoint.Name)Reachable"] = $false
         continue
     }
@@ -220,6 +309,7 @@ $report = [ordered]@{
     success = $errors.Count -eq 0
     checkedAt = (Get-Date).ToUniversalTime().ToString("o")
     installRoot = $install
+    dataRoot = $data
     modelRoot = $models
     checks = $checks
     details = $details

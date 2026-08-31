@@ -80,6 +80,7 @@ def test_invalid_manifest_is_rejected(tmp_path):
 
 def test_windows_service_and_config_include_all_offline_models():
     service = Path("scripts/windows/Register-DBGPTServices.ps1").read_text("utf-8")
+    launcher = Path("scripts/windows/Start-DBGPT.ps1").read_text("utf-8")
     config = Path("configs/dbgpt-windows-offline-ollama.example.toml").read_text(
         "utf-8"
     )
@@ -89,8 +90,9 @@ def test_windows_service_and_config_include_all_offline_models():
 
     for model in DEFAULT_MODELS:
         assert model in service
+        assert model in launcher
         assert model in preparation
-    assert "DBGPT_FALLBACK_LLM_MODEL" in service
+    assert "DBGPT_FALLBACK_LLM_MODEL" in launcher
     assert "DBGPT_FALLBACK_LLM_MODEL" in config
     assert "OLLAMA_NO_CLOUD=1" in service
     assert "OLLAMA_MAX_LOADED_MODELS=1" in service

@@ -5,7 +5,9 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$DataRoot,
     [Parameter(Mandatory = $true)]
-    [string]$BackupRoot
+    [string]$BackupRoot,
+    [ValidateRange(1, 65535)]
+    [int]$WebPort = 5670
 )
 
 $ErrorActionPreference = "Stop"
@@ -20,15 +22,31 @@ if (-not $PSCmdlet.ShouldProcess($DataRoot, "Stop DB-GPT and create backup")) {
     return
 }
 
-$service = Get-Service -Name "HGTechDBGPT" -ErrorAction SilentlyContinue
-if (-not $service) {
-    throw "HGTechDBGPT service is not installed; cannot guarantee a consistent backup"
+$pidPath = Join-Path $DataRoot "run\dbgpt.pid"
+$restart = $false
+if (Test-Path -LiteralPath $pidPath -PathType Leaf) {
+    $targetPid = 0
+    if (-not [int]::TryParse((Get-Content -LiteralPath $pidPath -Raw).Trim(), [ref]$targetPid)) {
+        throw "Invalid DB-GPT PID file; cannot guarantee a consistent backup: $pidPath"
+    }
+    $restart = $null -ne (Get-Process -Id $targetPid -ErrorAction SilentlyContinue)
+    if (-not $restart) {
+        & (Join-Path $InstallRoot "scripts\Stop-DBGPT.ps1") `
+            -InstallRoot $InstallRoot -DataRoot $DataRoot
+    }
 }
-$restart = $service.Status -ne "Stopped"
+if (-not $restart) {
+    $listener = @(& "$env:SystemRoot\System32\netstat.exe" -ano -p tcp | Where-Object {
+        $_ -match "^\s*TCP\s+\S+:$WebPort\s+\S+\s+LISTENING\s+\d+\s*$"
+    })
+    if ($listener.Count -gt 0) {
+        throw "TCP port $WebPort is in use without a valid DB-GPT PID record; refusing an inconsistent backup."
+    }
+}
 try {
     if ($restart) {
-        Stop-Service -Name "HGTechDBGPT" -Force
-        (Get-Service -Name "HGTechDBGPT").WaitForStatus("Stopped", "00:01:00")
+        & (Join-Path $InstallRoot "scripts\Stop-DBGPT.ps1") `
+            -InstallRoot $InstallRoot -DataRoot $DataRoot
     }
     & $python $tool backup $DataRoot $BackupRoot
     if ($LASTEXITCODE -ne 0) {
@@ -37,6 +55,7 @@ try {
 }
 finally {
     if ($restart) {
-        Start-Service -Name "HGTechDBGPT"
+        & (Join-Path $InstallRoot "scripts\Start-DBGPT.ps1") `
+            -InstallRoot $InstallRoot -DataRoot $DataRoot
     }
 }

@@ -133,4 +133,4 @@ Copy-Item -LiteralPath (
 Copy-Item -LiteralPath (Join-Path $release "release-manifest.json") `
     -Destination (Join-Path $InstallRoot "release-manifest.json")
 
-Write-Output "Offline files installed. Review paths and then register services."
+Write-Output "Offline files installed. Register the Ollama service and DB-GPT desktop shortcuts next."

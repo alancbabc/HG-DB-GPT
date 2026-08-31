@@ -104,6 +104,10 @@ def test_build_verify_and_detect_tampering(tmp_path, monkeypatch):
         "Test-OfflinePythonMedia.ps1",
         "Test-DBGPTOfflineInstallation.ps1",
         "Set-DBGPTProcessNetworkIsolation.ps1",
+        "Start-DBGPT.ps1",
+        "Stop-DBGPT.ps1",
+        "Get-DBGPTStatus.ps1",
+        "Install-DBGPTDesktopShortcuts.ps1",
         "Prepare-WindowsRuntimeMedia.ps1",
         "ollama_model_store.py",
         "runtime_media.py",
@@ -136,6 +140,7 @@ def test_build_verify_and_detect_tampering(tmp_path, monkeypatch):
     for relative in (
         "tools/nssm.exe",
         "ollama/ollama.exe",
+        "python/python.exe",
         "python/Scripts/dbgpt.exe",
         "config/dbgpt-windows-offline-ollama.toml",
         "metadata-template/alembic/env.py",
@@ -236,7 +241,7 @@ def test_powershell_validators_set_explicit_success_exit_codes():
         assert script.rstrip().endswith("exit 0"), relative
 
 
-def test_service_registration_checks_native_failures_and_protects_models():
+def test_registration_uses_ollama_service_and_current_user_shortcuts():
     registration = Path("scripts/windows/Register-DBGPTServices.ps1").read_text(
         "utf-8"
     )
@@ -244,27 +249,35 @@ def test_service_registration_checks_native_failures_and_protects_models():
     assert "function Invoke-NativeCommand" in registration
     assert "$LASTEXITCODE -ne 0" in registration
     assert "Administrator PowerShell is required" in registration
+    assert '"install", "HGTechOllama"' in registration
+    assert '"install", "HGTechDBGPT"' not in registration
+    assert r"NT AUTHORITY\LocalService" not in registration
+    assert "S-1-5-19" not in registration
     assert '"*S-1-5-20:(OI)(CI)RX"' in registration
     assert '"/inheritance:r"' in registration
     assert registration.index('"/inheritance:r"') < registration.index(
         '"/grant:r"'
     )
     assert '"/reset"' in registration
-    assert "PYTHONUTF8=1" in registration
-    assert "PYTHONIOENCODING=utf-8" in registration
-    assert "TIKTOKEN_CACHE_DIR=$tiktokenCache" in registration
-    assert "DBGPT_CONTEXT_LENGTH=$ContextLength" in registration
+    assert "Install-DBGPTDesktopShortcuts.ps1" in registration
     assert "[int]$ContextLength = 16384" in registration
     assert 'Join-Path $install "metadata-template"' in registration
     assert "Copy-Item -LiteralPath $_.FullName" in registration
 
 
-def test_installed_acceptance_checks_services_loopback_and_offline_models():
+def test_installed_acceptance_checks_user_process_loopback_and_offline_models():
     acceptance = Path("scripts/windows/Test-DBGPTOfflineInstallation.ps1").read_text(
         "utf-8"
     )
 
     assert "Get-Service" in acceptance
+    assert "dbgptProcessRunning" in acceptance
+    assert "dbgptRunsAsCurrentUser" in acceptance
+    assert "legacyDBGPTServiceInactive" in acceptance
+    assert "dbgptOwnerVerification" in acceptance
+    assert r"NT AUTHORITY\LOCAL SERVICE" in acceptance
+    assert "startShortcutInstalled" in acceptance
+    assert "stopShortcutInstalled" in acceptance
     assert "Get-NetTCPConnection" in acceptance
     assert "netstat.exe" in acceptance
     assert "Get-NetAdapter -Physical" in acceptance
@@ -293,13 +306,17 @@ def test_process_network_isolation_is_scoped_and_reversible():
 
 def test_installed_acceptance_fails_fast_when_services_are_missing(tmp_path):
     install = tmp_path / "installed"
+    data = tmp_path / "data"
     models = tmp_path / "models"
+    data.mkdir()
     models.mkdir()
     for relative in (
         "python/python.exe",
         "scripts/check_ollama_offline.py",
         "scripts/check_tiktoken_offline.py",
         "scripts/ollama_model_store.py",
+        "scripts/Start-DBGPT.ps1",
+        "scripts/Stop-DBGPT.ps1",
         f"tiktoken-cache/{offline_release.TIKTOKEN_CACHE_FILENAME}",
         "metadata-template/alembic/env.py",
     ):
@@ -317,12 +334,12 @@ def test_installed_acceptance_fails_fast_when_services_are_missing(tmp_path):
             str(install),
             "-ModelRoot",
             str(models),
+            "-DataRoot",
+            str(data),
             "-TimeoutSeconds",
             "1",
             "-OllamaServiceName",
             "HGTechTestMissingOllama",
-            "-DBGPTServiceName",
-            "HGTechTestMissingDBGPT",
         ],
         check=False,
         capture_output=True,
@@ -334,7 +351,70 @@ def test_installed_acceptance_fails_fast_when_services_are_missing(tmp_path):
     report = json.loads(result.stdout)
     assert report["success"] is False
     assert report["checks"]["HGTechTestMissingOllamaRunning"] is False
-    assert report["checks"]["HGTechTestMissingDBGPTRunning"] is False
+    assert report["checks"]["dbgptProcessRunning"] is False
+
+
+def test_current_user_launch_scripts_preserve_original_file_permissions():
+    start = Path("scripts/windows/Start-DBGPT.ps1").read_text("utf-8")
+    stop = Path("scripts/windows/Stop-DBGPT.ps1").read_text("utf-8")
+    shortcuts = Path(
+        "scripts/windows/Install-DBGPTDesktopShortcuts.ps1"
+    ).read_text("utf-8")
+    backup = Path("scripts/windows/Backup-DBGPTData.ps1").read_text("utf-8")
+    restore = Path("scripts/windows/Restore-DBGPTData.ps1").read_text("utf-8")
+
+    assert "WindowsIdentity]::GetCurrent" in start
+    assert 'Join-Path $configRoot "encrypt.key"' in start
+    assert "DBGPT_ENCRYPT_KEY" in start
+    assert '"dbgpt.cli.cli_scripts"' in start
+    assert "TIKTOKEN_CACHE_DIR" in start
+    assert "PYTHONUTF8" in start
+    assert "dbgpt.pid" in start
+    assert "dbgpt.pid" in stop
+    assert "[char]0x542f" in shortcuts
+    assert "[char]0x52a8" in shortcuts
+    assert "[char]0x505c" in shortcuts
+    assert "[char]0x6b62" in shortcuts
+    assert "Start-DBGPT.ps1" in backup
+    assert "Stop-DBGPT.ps1" in backup
+    assert "refusing an inconsistent backup" in backup
+    assert "S-1-5-19" not in restore
+    assert "LocalService" not in restore
+
+
+def test_desktop_shortcuts_are_created_in_requested_directory(tmp_path):
+    install = tmp_path / "installed path"
+    data = tmp_path / "data path"
+    desktop = tmp_path / "desktop path"
+    data.mkdir()
+    desktop.mkdir()
+    _file(install / "scripts" / "Start-DBGPT.ps1")
+    _file(install / "scripts" / "Stop-DBGPT.ps1")
+
+    result = subprocess.run(
+        [
+            "powershell",
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            "scripts/windows/Install-DBGPTDesktopShortcuts.ps1",
+            "-InstallRoot",
+            str(install),
+            "-DataRoot",
+            str(data),
+            "-DesktopPath",
+            str(desktop),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert (desktop / "启动 DB-GPT.lnk").is_file()
+    assert (desktop / "停止 DB-GPT.lnk").is_file()
 
 
 def test_offline_config_uses_one_context_length_setting():

@@ -33,12 +33,12 @@ function Invoke-NativeCommand {
 $install = (Resolve-Path -LiteralPath $InstallRoot).Path
 $nssm = Join-Path $install "tools\nssm.exe"
 $ollama = Join-Path $install "ollama\ollama.exe"
-$dbgpt = Join-Path $install "python\Scripts\dbgpt.exe"
+$python = Join-Path $install "python\python.exe"
 $config = Join-Path $install "config\dbgpt-windows-offline-ollama.toml"
 $metadataTemplate = Join-Path $install "metadata-template"
 $tiktokenCache = Join-Path $install "tiktoken-cache"
 $tiktokenCacheFile = Join-Path $tiktokenCache "9b5ad71b2ce5302211f9c61530b329a4922fc6a4"
-foreach ($required in ($nssm, $ollama, $dbgpt, $config, $tiktokenCacheFile)) {
+foreach ($required in ($nssm, $ollama, $python, $config, $tiktokenCacheFile)) {
     if (-not (Test-Path -LiteralPath $required -PathType Leaf)) {
         throw "Required installed file is missing: $required"
     }
@@ -47,7 +47,7 @@ if (-not (Test-Path -LiteralPath $metadataTemplate -PathType Container)) {
     throw "Required metadata template is missing: $metadataTemplate"
 }
 
-if (-not $PSCmdlet.ShouldProcess($install, "Register DB-GPT and Ollama services")) {
+if (-not $PSCmdlet.ShouldProcess($install, "Register Ollama service and DB-GPT desktop shortcuts")) {
     return
 }
 
@@ -56,8 +56,9 @@ $principal = New-Object Security.Principal.WindowsPrincipal($identity)
 if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
     throw "Administrator PowerShell is required"
 }
+$currentUserSid = $identity.User.Value
 
-foreach ($serviceName in ("HGTechOllama", "HGTechDBGPT")) {
+foreach ($serviceName in ("HGTechOllama")) {
     if (Get-Service -Name $serviceName -ErrorAction SilentlyContinue) {
         throw "Service already exists: $serviceName"
     }
@@ -88,11 +89,14 @@ Get-ChildItem -LiteralPath $metadataTemplate -Recurse -File | ForEach-Object {
     }
 }
 Invoke-NativeCommand -FilePath "icacls.exe" -Arguments @(
-    $install, "/grant", "*S-1-5-19:(OI)(CI)RX", "*S-1-5-20:(OI)(CI)RX"
+    $install, "/grant", "*S-1-5-20:(OI)(CI)RX"
 ) -Description "Grant service read access to the installation"
 Invoke-NativeCommand -FilePath "icacls.exe" -Arguments @(
-    $DataRoot, "/grant", "*S-1-5-19:(OI)(CI)M"
-) -Description "Grant LocalService access to DB-GPT data"
+    $install, "/grant", "*$($currentUserSid):(OI)(CI)RX"
+) -Description "Grant the installing user read access to the installation"
+Invoke-NativeCommand -FilePath "icacls.exe" -Arguments @(
+    $DataRoot, "/grant", "*$($currentUserSid):(OI)(CI)M"
+) -Description "Grant the installing user access to DB-GPT runtime data"
 Invoke-NativeCommand -FilePath "icacls.exe" -Arguments @(
     $ModelRoot, "/inheritance:r"
 ) -Description "Remove inherited permissions from the offline model store"
@@ -139,52 +143,9 @@ Invoke-NativeCommand "sc.exe" @(
     "config", "HGTechOllama", "start=", "delayed-auto"
 ) "Set Ollama delayed automatic start"
 
-$randomBytes = New-Object byte[] 32
-$randomGenerator = [Security.Cryptography.RandomNumberGenerator]::Create()
-try {
-    $randomGenerator.GetBytes($randomBytes)
-}
-finally {
-    $randomGenerator.Dispose()
-}
-$encryptKey = (([BitConverter]::ToString($randomBytes)) -replace "-", "").ToLowerInvariant()
-Invoke-NativeCommand $nssm @(
-    "install", "HGTechDBGPT", $dbgpt,
-    "start webserver --yes --config `"$config`""
-) "Register the DB-GPT service"
-Invoke-NativeCommand $nssm @(
-    "set", "HGTechDBGPT", "AppDirectory", $install
-) "Set the DB-GPT working directory"
-Invoke-NativeCommand $nssm @(
-    "set", "HGTechDBGPT", "DependOnService", "HGTechOllama"
-) "Set the DB-GPT service dependency"
-Invoke-NativeCommand $nssm @(
-    "set", "HGTechDBGPT", "AppEnvironmentExtra",
-    "DBGPT_DATA_DIR=$DataRoot", "DBGPT_LLM_MODEL=$LlmModel",
-    "DBGPT_FALLBACK_LLM_MODEL=$FallbackLlmModel",
-    "DBGPT_EMBEDDING_MODEL=$EmbeddingModel", "DBGPT_ENCRYPT_KEY=$encryptKey",
-    "DBGPT_CONTEXT_LENGTH=$ContextLength", "TIKTOKEN_CACHE_DIR=$tiktokenCache",
-    "PYTHONUTF8=1", "PYTHONIOENCODING=utf-8"
-) "Set the DB-GPT environment"
-Invoke-NativeCommand $nssm @(
-    "set", "HGTechDBGPT", "AppStdout", (Join-Path $DataRoot "logs\dbgpt\stdout.log")
-) "Set the DB-GPT stdout log"
-Invoke-NativeCommand $nssm @(
-    "set", "HGTechDBGPT", "AppStderr", (Join-Path $DataRoot "logs\dbgpt\stderr.log")
-) "Set the DB-GPT stderr log"
-foreach ($setting in @(
-    @("AppRotateFiles", "1"),
-    @("AppRotateOnline", "1"),
-    @("AppRotateBytes", "10485760")
-)) {
-    Invoke-NativeCommand $nssm @("set", "HGTechDBGPT", $setting[0], $setting[1]) `
-        "Set DB-GPT $($setting[0])"
-}
-Invoke-NativeCommand "sc.exe" @(
-    "config", "HGTechDBGPT", "obj=", "NT AUTHORITY\LocalService"
-) "Set the DB-GPT service account"
-Invoke-NativeCommand "sc.exe" @(
-    "config", "HGTechDBGPT", "start=", "delayed-auto"
-) "Set DB-GPT delayed automatic start"
+$shortcutInstaller = Join-Path $install "scripts\Install-DBGPTDesktopShortcuts.ps1"
+& $shortcutInstaller -InstallRoot $install -DataRoot $DataRoot `
+    -LlmModel $LlmModel -FallbackLlmModel $FallbackLlmModel `
+    -EmbeddingModel $EmbeddingModel -ContextLength $ContextLength
 
-Write-Output "Services registered. Production database ACL must be configured separately."
+Write-Output "Ollama service and current-user DB-GPT desktop shortcuts registered."

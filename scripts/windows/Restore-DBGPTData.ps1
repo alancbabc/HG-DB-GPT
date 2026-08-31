@@ -27,5 +27,4 @@ if (-not $PSCmdlet.ShouldProcess($NewDataRoot, "Restore verified backup to new r
 if ($LASTEXITCODE -ne 0) {
     throw "Runtime-data restore failed"
 }
-& icacls $NewDataRoot /grant '*S-1-5-19:(OI)(CI)M' | Out-Null
-Write-Output "Restore completed without replacing the current data root."
+Write-Output "Restore completed for the current Windows user without replacing the current data root."

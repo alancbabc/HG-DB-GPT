@@ -1,5 +1,8 @@
 # Windows 离线产线化：阶段 16 干净测试机执行入口
 
+> 阶段19已将DB-GPT从`LocalService`服务改为当前安装用户桌面快捷方式启动。本页的
+> 历史验收结果保留，以下执行入口已同步为当前方案。
+
 ## 本阶段改动
 
 - 服务注册的每个NSSM、`sc.exe`和`icacls`调用都检查原生退出码；任一步失败立即
@@ -7,11 +10,12 @@
 - Ollama的 `NetworkService` 对固定模型仓库只保留读取和执行权限。脚本移除模型
   目录的宽泛继承，并保留Administrators和SYSTEM完全控制；模型更新必须由管理员
   在停止服务后离线完成。
-- 新增 `Test-DBGPTOfflineInstallation.ps1`，用于目标机统一验证服务、物理断网、
+- 新增 `Test-DBGPTOfflineInstallation.ps1`，用于目标机统一验证Ollama服务、当前用户
+  DB-GPT进程、物理断网、
   回环监听、Web健康、模型仓库和三模型真实接口。
 
-生产数据库ACL仍不由安装或服务注册脚本自动修改。必须在已确认真实路径后单独
-配置 `LocalService` 对数据库、`-wal`、`-shm`和目录所需的最小读取权限。
+DB-GPT以执行安装的当前Windows用户身份启动，不再配置`LocalService`或生产数据库
+额外ACL。数据源未选择`read_only`时保持项目原有普通SQLite连接方式。
 
 ## 干净机执行顺序
 
@@ -33,22 +37,23 @@ powershell -ExecutionPolicy Bypass -File "$install\scripts\Register-DBGPTService
   -InstallRoot $install -DataRoot $data -ModelRoot $models
 
 Start-Service HGTechOllama
-Start-Service HGTechDBGPT
+powershell -ExecutionPolicy Bypass -File "$install\scripts\Start-DBGPT.ps1" `
+  -InstallRoot $install -DataRoot $data
 
 powershell -ExecutionPolicy Bypass -File `
   "$install\scripts\Test-DBGPTOfflineInstallation.ps1" `
-  -InstallRoot $install -ModelRoot $models `
+  -InstallRoot $install -DataRoot $data -ModelRoot $models `
   -RequirePhysicalNetworkDisconnected | Tee-Object `
   -FilePath "$data\installation-acceptance.json"
 ```
 
-验收脚本在服务缺失或停止时快速失败，不会为每个停止的服务等待10分钟。服务运行
-后，它等待本机端点就绪，并确认5670和11434没有监听到非回环地址。严格断网模式
+验收脚本在Ollama服务或当前用户DB-GPT进程缺失时快速失败。进程运行后，它等待
+本机端点就绪，并确认5670和11434没有监听到非回环地址。严格断网模式
 要求所有物理网卡均不是 `Up` 状态；虚拟回环和软件适配器不计入。
 
 ## 通过条件
 
-- `HGTechOllama`和`HGTechDBGPT`均为Running；
+- `HGTechOllama`为Running，DB-GPT当前用户进程健康且旧`HGTechDBGPT`服务未运行；
 - 物理网卡断开，Web和Ollama只监听127.0.0.1/`::1`；
 - Web `/api/health`成功；
 - Ollama版本0.32.15，三个固定模型存在；
