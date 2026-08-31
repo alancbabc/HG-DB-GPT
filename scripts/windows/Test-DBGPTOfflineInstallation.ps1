@@ -79,6 +79,7 @@ $pidPath = Join-Path $data "run\dbgpt.pid"
 $statePath = Join-Path $data "run\dbgpt-process.json"
 $dbgptRunning = $false
 $dbgptRunsAsCurrentUser = $false
+$dbgptRunsNonElevated = $false
 $dbgptPid = $null
 $recordedState = $null
 if (Test-Path -LiteralPath $pidPath -PathType Leaf) {
@@ -108,6 +109,8 @@ if (Test-Path -LiteralPath $pidPath -PathType Leaf) {
                 )
             if ($null -ne $recordedState) {
                 $details["dbgptRecordedOwner"] = $recordedState.user
+                $details["dbgptRecordedElevated"] = $recordedState.elevated
+                $dbgptRunsNonElevated = $recordedState.elevated -eq $false
             }
             try {
                 $processInfo = Get-CimInstance Win32_Process -Filter "ProcessId=$parsedPid"
@@ -134,12 +137,16 @@ if (Test-Path -LiteralPath $pidPath -PathType Leaf) {
 }
 $checks["dbgptProcessRunning"] = $dbgptRunning
 $checks["dbgptRunsAsCurrentUser"] = $dbgptRunsAsCurrentUser
+$checks["dbgptRunsNonElevated"] = $dbgptRunsNonElevated
 $details["dbgptPid"] = $dbgptPid
 if (-not $dbgptRunning) {
     $errors.Add("Current-user DB-GPT process is not running")
 }
 elseif (-not $dbgptRunsAsCurrentUser) {
     $errors.Add("DB-GPT is not running as the current Windows user")
+}
+elseif (-not $dbgptRunsNonElevated) {
+    $errors.Add("DB-GPT was started with an elevated administrator token")
 }
 
 if ($RequirePhysicalNetworkDisconnected) {

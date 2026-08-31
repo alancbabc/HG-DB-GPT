@@ -65,6 +65,8 @@ def test_build_verify_and_detect_tampering(tmp_path, monkeypatch):
     args = argparse.Namespace(
         output=output,
         release_version="test-1",
+        source_commit="0123456789abcdef",
+        source_tag="offline-test-1",
         python_installer=python_installer,
         vc_redist=vc_redist,
         wheelhouse=wheelhouse,
@@ -82,10 +84,14 @@ def test_build_verify_and_detect_tampering(tmp_path, monkeypatch):
     assert report["fileCount"] > 6
     manifest = json.loads((output / "release-manifest.json").read_text("utf-8"))
     assert manifest["schemaVersion"] == 2
+    assert manifest["sourceCommit"] == "0123456789abcdef"
+    assert manifest["sourceTag"] == "offline-test-1"
     entries = {entry["path"]: entry for entry in manifest["files"]}
     assert "sha256" not in entries["models/blobs/sha256-test"]
     assert "sha256" not in entries["wheelhouse/dependency-1.0-py3-none-any.whl"]
     assert "sha256" in entries["scripts/Install-DBGPTOffline.ps1"]
+    assert "sha256" in entries["Install-DBGPT.cmd"]
+    assert "sha256" in entries["deployment-config.json"]
     assert "sha256" in entries["runtime/vc-redist.x64.exe"]
     assert "sha256" in entries[
         f"tiktoken-cache/{offline_release.TIKTOKEN_CACHE_FILENAME}"
@@ -108,6 +114,10 @@ def test_build_verify_and_detect_tampering(tmp_path, monkeypatch):
         "Stop-DBGPT.ps1",
         "Get-DBGPTStatus.ps1",
         "Install-DBGPTDesktopShortcuts.ps1",
+        "DBGPTOfflineSetup.Common.ps1",
+        "Test-DBGPTPreflight.ps1",
+        "Install-DBGPTSystem.ps1",
+        "Invoke-DBGPTOfflineSetup.ps1",
         "Prepare-WindowsRuntimeMedia.ps1",
         "ollama_model_store.py",
         "runtime_media.py",
@@ -116,6 +126,8 @@ def test_build_verify_and_detect_tampering(tmp_path, monkeypatch):
         "sqlite_live_read_probe.py",
     ):
         assert (output / "scripts" / script).is_file()
+    assert (output / "Install-DBGPT.cmd").is_file()
+    assert (output / "deployment-config.json").is_file()
 
     powershell = subprocess.run(
         [
@@ -217,8 +229,16 @@ def test_installer_explicitly_installs_ollama_and_runs_runtime_check():
 
     assert "@appWheels ollama" in installer
     assert "check_installed_runtime.py" in installer
-    assert 'Join-Path $release "tiktoken-cache"' in installer
+    assert '"ollama", "tools", "scripts", "metadata-template", "tiktoken-cache"' in installer
     assert "vc-redist.x64.exe" in installer
+    assert '"TargetDir=`"$pythonRoot`""' in installer
+    assert "Python installer did not create the expected executable" in installer
+    assert '"`"$pythonInstallLog`""' in installer
+    assert '"Include_launcher=0"' in installer
+    assert '"AssociateFiles=0"' in installer
+    assert '$legacyBrokenRoot = "C:\\Program"' in installer
+    assert 'resumeVersion -eq "0.8.1-dev-deploy-20260831-stage21.3"' in installer
+    assert '@("/uninstall", "/quiet")' in installer
     assert '"/install", "/quiet", "/norestart"' in installer
     assert "Windows restart is required before rerunning" in installer
     assert "runtime-media.lock.json" in installer
@@ -226,8 +246,13 @@ def test_installer_explicitly_installs_ollama_and_runs_runtime_check():
     assert "$process.WaitForExit()" in installer
     assert "-WindowStyle Hidden -Wait -PassThru" not in installer
     assert installer.index("$vcProcess = Start-Process") < installer.index(
-        "New-Item -ItemType Directory -Path $InstallRoot"
+        "New-Item -ItemType Directory -Force -Path $InstallRoot"
     )
+    assert "[switch]$Resume" in installer
+    assert "Resuming incomplete release" in installer
+    assert "Refusing to overwrite a completed installation" in installer
+    assert "Refusing to overwrite an unrecognized existing directory" in installer
+    assert ".dbgpt-offline-installing.json" in installer
 
 
 def test_powershell_validators_set_explicit_success_exit_codes():
@@ -260,6 +285,9 @@ def test_registration_uses_ollama_service_and_current_user_shortcuts():
     )
     assert '"/reset"' in registration
     assert "Install-DBGPTDesktopShortcuts.ps1" in registration
+    assert "RuntimeUserSid" in registration
+    assert "SkipDesktopShortcuts" in registration
+    assert "RepairExisting" in registration
     assert "[int]$ContextLength = 16384" in registration
     assert 'Join-Path $install "metadata-template"' in registration
     assert "Copy-Item -LiteralPath $_.FullName" in registration
@@ -273,6 +301,7 @@ def test_installed_acceptance_checks_user_process_loopback_and_offline_models():
     assert "Get-Service" in acceptance
     assert "dbgptProcessRunning" in acceptance
     assert "dbgptRunsAsCurrentUser" in acceptance
+    assert "dbgptRunsNonElevated" in acceptance
     assert "legacyDBGPTServiceInactive" in acceptance
     assert "dbgptOwnerVerification" in acceptance
     assert r"NT AUTHORITY\LOCAL SERVICE" in acceptance
@@ -364,6 +393,7 @@ def test_current_user_launch_scripts_preserve_original_file_permissions():
     restore = Path("scripts/windows/Restore-DBGPTData.ps1").read_text("utf-8")
 
     assert "WindowsIdentity]::GetCurrent" in start
+    assert "elevated = $isElevated" in start
     assert 'Join-Path $configRoot "encrypt.key"' in start
     assert "DBGPT_ENCRYPT_KEY" in start
     assert '"dbgpt.cli.cli_scripts"' in start
@@ -425,3 +455,93 @@ def test_offline_config_uses_one_context_length_setting():
     assert '[service.web.agent_context]' in config
     assert 'max_context_tokens = "${env:DBGPT_CONTEXT_LENGTH:-16384}"' in config
     assert config.count('context_length = "${env:DBGPT_CONTEXT_LENGTH:-16384}"') == 2
+
+
+def test_one_click_setup_keeps_a_small_installation_path():
+    entry = Path("scripts/windows/Install-DBGPT.cmd").read_text("utf-8")
+    orchestrator = Path(
+        "scripts/windows/Invoke-DBGPTOfflineSetup.ps1"
+    ).read_text("utf-8")
+    system = Path("scripts/windows/Install-DBGPTSystem.ps1").read_text("utf-8")
+    preflight = Path("scripts/windows/Test-DBGPTPreflight.ps1").read_text("utf-8")
+
+    assert "Invoke-DBGPTOfflineSetup.ps1" in entry
+    assert '$processArguments["Verb"] = "RunAs"' in orchestrator
+    assert "do not start it from an elevated terminal" not in orchestrator
+    assert "Write-DBGPTSetupState" not in orchestrator
+    assert "Start-DBGPT.ps1" not in orchestrator
+    assert "Test-DBGPTOfflineInstallation.ps1" not in orchestrator
+    assert "deployment-config.local.json" in orchestrator
+    assert orchestrator.index("deployment-config.local.json") < orchestrator.index(
+        'Join-Path $release "deployment-config.json"'
+    )
+    assert "RuntimeUserSid" in system
+    assert "-SkipDesktopShortcuts -RepairExisting" in system
+    assert "Start-Service -Name \"HGTechOllama\"" in system
+    assert "check_ollama_offline.py" in system
+    assert "Write-DBGPTSetupState" not in system
+    assert "Get-NetAdapter -Physical" not in preflight
+    assert "RequirePhysicalOffline" not in preflight
+    assert "diskSpaceSufficient" in preflight
+    assert "Runtime destination must not be inside the release media" in preflight
+
+
+def test_one_click_cmd_passes_release_root_without_a_trailing_quote(tmp_path):
+    release = tmp_path / "offline media with spaces"
+    scripts = release / "scripts"
+    scripts.mkdir(parents=True)
+    (release / "Install-DBGPT.cmd").write_text(
+        Path("scripts/windows/Install-DBGPT.cmd").read_text("utf-8"),
+        encoding="utf-8",
+    )
+    (scripts / "Invoke-DBGPTOfflineSetup.ps1").write_text(
+        "param([string]$ReleaseRoot)\n"
+        "[Console]::Write((Resolve-Path -LiteralPath $ReleaseRoot).Path)\n",
+        encoding="utf-8",
+    )
+
+    result = subprocess.run(
+        ["cmd.exe", "/d", "/c", str(release / "Install-DBGPT.cmd")],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == str(release.resolve())
+    assert '"' not in result.stdout
+
+
+def test_target_machine_scripts_do_not_embed_preparation_machine_paths():
+    target_scripts = (
+        "Install-DBGPTOffline.ps1",
+        "Register-DBGPTServices.ps1",
+        "Install-DBGPTDesktopShortcuts.ps1",
+        "Start-DBGPT.ps1",
+        "Stop-DBGPT.ps1",
+        "Invoke-DBGPTOfflineSetup.ps1",
+        "Install-DBGPTSystem.ps1",
+        "Test-DBGPTPreflight.ps1",
+    )
+    for name in target_scripts:
+        content = Path("scripts/windows", name).read_text("utf-8").lower()
+        assert "c:\\users\\" not in content, name
+        assert "15712" not in content, name
+        assert "desktop\\hgtech" not in content, name
+
+
+def test_one_click_deployment_defaults_are_minimal_and_loopback_only():
+    config = json.loads(
+        Path("configs/dbgpt-windows-offline-deployment.json").read_text("utf-8")
+    )
+
+    assert "requirePhysicalOffline" not in config
+    assert "startAfterInstall" not in config
+    assert "openBrowserAfterInstall" not in config
+    assert config["webPort"] == 5670
+    assert config["ollamaPort"] == 11434
+    assert config["contextLength"] == 16384
+    assert config["mainLlmModel"] == "qwen3.5:27b-q4_K_M"
+    assert config["fallbackLlmModel"] == "qwen3.5:9b-q4_K_M"
+    assert config["embeddingModel"] == "qwen3-embedding:0.6b"

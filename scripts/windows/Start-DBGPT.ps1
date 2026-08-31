@@ -170,10 +170,15 @@ $dbgptProcess = Start-Process -FilePath $python -ArgumentList $arguments `
     -RedirectStandardOutput $stdout -RedirectStandardError $stderr -PassThru
 [IO.File]::WriteAllText($pidPath, [string]$dbgptProcess.Id)
 $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+$principal = New-Object Security.Principal.WindowsPrincipal($identity)
+$isElevated = $principal.IsInRole(
+    [Security.Principal.WindowsBuiltInRole]::Administrator
+)
 $state = [ordered]@{
     pid = $dbgptProcess.Id
     user = $identity.Name
     userSid = $identity.User.Value
+    elevated = $isElevated
     installRoot = $install
     dataRoot = $data
     startedAt = (Get-Date).ToUniversalTime().ToString("o")

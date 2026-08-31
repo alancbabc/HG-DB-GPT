@@ -1,0 +1,11 @@
+{
+  "installRoot": "C:\\Program Files\\HGTech\\DB-GPT",
+  "dataRoot": "C:\\ProgramData\\HGTech\\DB-GPT",
+  "modelRoot": "C:\\ProgramData\\HGTech\\OllamaModels",
+  "webPort": 5670,
+  "ollamaPort": 11434,
+  "mainLlmModel": "qwen3.5:27b-q4_K_M",
+  "fallbackLlmModel": "qwen3.5:9b-q4_K_M",
+  "embeddingModel": "qwen3-embedding:0.6b",
+  "contextLength": 16384
+}

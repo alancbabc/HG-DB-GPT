@@ -36,6 +36,10 @@ REQUIRED_REPOSITORY_FILES = (
     "scripts/windows/Stop-DBGPT.ps1",
     "scripts/windows/Get-DBGPTStatus.ps1",
     "scripts/windows/Install-DBGPTDesktopShortcuts.ps1",
+    "scripts/windows/DBGPTOfflineSetup.Common.ps1",
+    "scripts/windows/Test-DBGPTPreflight.ps1",
+    "scripts/windows/Install-DBGPTSystem.ps1",
+    "scripts/windows/Invoke-DBGPTOfflineSetup.ps1",
     "scripts/windows/runtime_data.py",
     "scripts/windows/Backup-DBGPTData.ps1",
     "scripts/windows/Restore-DBGPTData.ps1",
@@ -43,7 +47,14 @@ REQUIRED_REPOSITORY_FILES = (
     "scripts/windows/runtime-media.lock.json",
 )
 
+ROOT_RELEASE_FILES = {
+    "scripts/windows/Install-DBGPT.cmd": "Install-DBGPT.cmd",
+    "configs/dbgpt-windows-offline-deployment.json": "deployment-config.json",
+}
+
 HASHED_FILES = {
+    "Install-DBGPT.cmd",
+    "deployment-config.json",
     "runtime/python-installer.exe",
     "runtime/vc-redist.x64.exe",
     "tools/nssm.exe",
@@ -169,6 +180,12 @@ def build_release(args: argparse.Namespace) -> Path:
             )
             shutil.copy2(source, target_parent / source.name)
 
+        for source_relative, target_relative in ROOT_RELEASE_FILES.items():
+            source = repository_root / source_relative
+            if not source.is_file():
+                raise ValueError(f"Repository release file is missing: {source}")
+            shutil.copy2(source, staging / target_relative)
+
         metadata_source = repository_root / "pilot" / "meta_data"
         for relative in METADATA_TEMPLATE_FILES:
             source = metadata_source / relative
@@ -195,6 +212,12 @@ def build_release(args: argparse.Namespace) -> Path:
             "target": "windows-x86_64-offline",
             "files": entries,
         }
+        source_commit = getattr(args, "source_commit", None)
+        source_tag = getattr(args, "source_tag", None)
+        if source_commit:
+            manifest["sourceCommit"] = source_commit
+        if source_tag:
+            manifest["sourceTag"] = source_tag
         (staging / MANIFEST_NAME).write_text(
             json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8"
         )
@@ -249,6 +272,8 @@ def _parse_args() -> argparse.Namespace:
     build = subparsers.add_parser("build")
     build.add_argument("--output", type=Path, required=True)
     build.add_argument("--release-version", required=True)
+    build.add_argument("--source-commit")
+    build.add_argument("--source-tag")
     build.add_argument("--python-installer", type=Path, required=True)
     build.add_argument("--vc-redist", type=Path, required=True)
     build.add_argument("--wheelhouse", type=Path, required=True)

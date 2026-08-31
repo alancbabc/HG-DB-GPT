@@ -10,7 +10,10 @@ param(
     [string]$FallbackLlmModel = "qwen3.5:9b-q4_K_M",
     [string]$EmbeddingModel = "qwen3-embedding:0.6b",
     [ValidateRange(2048, 131072)]
-    [int]$ContextLength = 16384
+    [int]$ContextLength = 16384,
+    [string]$RuntimeUserSid,
+    [switch]$SkipDesktopShortcuts,
+    [switch]$RepairExisting
 )
 
 $ErrorActionPreference = "Stop"
@@ -56,12 +59,14 @@ $principal = New-Object Security.Principal.WindowsPrincipal($identity)
 if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
     throw "Administrator PowerShell is required"
 }
-$currentUserSid = $identity.User.Value
-
-foreach ($serviceName in ("HGTechOllama")) {
-    if (Get-Service -Name $serviceName -ErrorAction SilentlyContinue) {
-        throw "Service already exists: $serviceName"
-    }
+$runtimeSid = if ([string]::IsNullOrWhiteSpace($RuntimeUserSid)) {
+    $identity.User.Value
+}
+else {
+    $RuntimeUserSid
+}
+if ($runtimeSid -notmatch "^S-1-5-21-(\d+-){3}\d+$") {
+    throw "RuntimeUserSid is not a valid local or domain user SID"
 }
 
 $dataDirectories = @(
@@ -92,10 +97,10 @@ Invoke-NativeCommand -FilePath "icacls.exe" -Arguments @(
     $install, "/grant", "*S-1-5-20:(OI)(CI)RX"
 ) -Description "Grant service read access to the installation"
 Invoke-NativeCommand -FilePath "icacls.exe" -Arguments @(
-    $install, "/grant", "*$($currentUserSid):(OI)(CI)RX"
+    $install, "/grant", "*$($runtimeSid):(OI)(CI)RX"
 ) -Description "Grant the installing user read access to the installation"
 Invoke-NativeCommand -FilePath "icacls.exe" -Arguments @(
-    $DataRoot, "/grant", "*$($currentUserSid):(OI)(CI)M"
+    $DataRoot, "/grant", "*$($runtimeSid):(OI)(CI)M"
 ) -Description "Grant the installing user access to DB-GPT runtime data"
 Invoke-NativeCommand -FilePath "icacls.exe" -Arguments @(
     $ModelRoot, "/inheritance:r"
@@ -111,8 +116,26 @@ Invoke-NativeCommand -FilePath "icacls.exe" -Arguments @(
     (Join-Path $DataRoot "logs\ollama"), "/grant", "*S-1-5-20:(OI)(CI)M"
 ) -Description "Grant Ollama log access"
 
-Invoke-NativeCommand $nssm @("install", "HGTechOllama", $ollama, "serve") `
-    "Register the Ollama service"
+$existingService = Get-Service -Name "HGTechOllama" -ErrorAction SilentlyContinue
+if ($null -ne $existingService) {
+    if (-not $RepairExisting) {
+        throw "Service already exists: HGTechOllama"
+    }
+    $existingApplication = (& $nssm get "HGTechOllama" Application | `
+        Select-Object -Last 1).Trim().Trim('"')
+    if ($LASTEXITCODE -ne 0 -or `
+        [IO.Path]::GetFullPath($existingApplication) -ne `
+        [IO.Path]::GetFullPath($ollama)) {
+        throw (
+            "Existing HGTechOllama service belongs to another installation: " +
+            $existingApplication
+        )
+    }
+}
+else {
+    Invoke-NativeCommand $nssm @("install", "HGTechOllama", $ollama, "serve") `
+        "Register the Ollama service"
+}
 Invoke-NativeCommand $nssm @(
     "set", "HGTechOllama", "AppDirectory", (Split-Path $ollama)
 ) "Set the Ollama working directory"
@@ -143,9 +166,12 @@ Invoke-NativeCommand "sc.exe" @(
     "config", "HGTechOllama", "start=", "delayed-auto"
 ) "Set Ollama delayed automatic start"
 
-$shortcutInstaller = Join-Path $install "scripts\Install-DBGPTDesktopShortcuts.ps1"
-& $shortcutInstaller -InstallRoot $install -DataRoot $DataRoot `
-    -LlmModel $LlmModel -FallbackLlmModel $FallbackLlmModel `
-    -EmbeddingModel $EmbeddingModel -ContextLength $ContextLength
+if (-not $SkipDesktopShortcuts) {
+    $shortcutInstaller = Join-Path $install `
+        "scripts\Install-DBGPTDesktopShortcuts.ps1"
+    & $shortcutInstaller -InstallRoot $install -DataRoot $DataRoot `
+        -LlmModel $LlmModel -FallbackLlmModel $FallbackLlmModel `
+        -EmbeddingModel $EmbeddingModel -ContextLength $ContextLength
+}
 
-Write-Output "Ollama service and current-user DB-GPT desktop shortcuts registered."
+Write-Output "Ollama service registration completed."
